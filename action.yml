@@ -1,26 +1,39 @@
-name: Update Copyright and License
+author: Robert Lindley
+name: Copyright and License
 description: Automatically adds a copyright header to all source files
   in the repository based on the selected open-source license.
+
+branding:
+  color: yellow
+  icon: lock
 
 inputs:
   name:
     description: "Name of the copyright holder"
     required: true
+
   license:
     description: "License type (apache-2.0, mit, gpl-3.0, bsd-3-clause, other)"
     required: true
+
   working-directory:
+    default: "."
     description: "Directory to scan for source files"
     required: false
-    default: "."
 
 runs:
   using: "composite"
   steps:
-    - name: Set up execution environment
+    - name: Ensure script is executable
+      id: ensure-executable
       shell: bash
-      run: chmod +x ${{ github.action_path }}/scripts/copyright.sh
+      run: chmod +x "${{ github.action_path }}/scripts/copyright.sh"
 
     - name: Execute Copyright Update
+      id: execute-update
       shell: bash
-      run: ${{ github.action_path }}/scripts/copyright.sh "${{ inputs.name }}" "${{ inputs.license }}" "${{ inputs.working-directory }}"
+      run: |
+        "${{ github.action_path }}/scripts/copyright.sh" \
+        "${{ inputs.working-directory }}" \
+        "${{ inputs.license }}" \
+        "${{ inputs.name }}"
