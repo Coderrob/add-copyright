@@ -16,7 +16,7 @@ jobs:
 
       - name: Update README
         id: update-readme
-        uses: Coderrob/update-action-readme@v1
+        uses: Coderrob/update-action-readme@v1.0.1
         with:
           readme-file-path: "./README.md"
           action-file-path: "./action.yml"
