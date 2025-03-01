@@ -1,0 +1,26 @@
+name: "Update README"
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Repository
+        id: checkout-repository
+        uses: actions/checkout@v4
+
+      - name: Update README
+        id: update-readme
+        uses: Coderrob/update-action-readme@v1
+        with:
+          readme-file-path: "./README.md"
+          action-file-path: "./action.yml"
+
+      - name: Commit and Push Changes
+        id: commit-and-push-changes
+        uses: Coderrob/commit-and-push@v1
