@@ -24,3 +24,7 @@ jobs:
       - name: Commit and Push Changes
         id: commit-and-push-changes
         uses: Coderrob/commit-and-push@v1
+        with:
+          branch: update-readme
+          create-branch: true
+          commit-message: "Update README post-action changes"
