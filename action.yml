@@ -24,7 +24,11 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Ensure script is executable
+    - name: Checkout Repository
+      id: checkout-repository
+      uses: actions/checkout@v2
+
+    - name: Ensure Script Permission
       id: ensure-executable
       shell: bash
       run: chmod +x "${{ github.action_path }}/scripts/copyright.sh"
