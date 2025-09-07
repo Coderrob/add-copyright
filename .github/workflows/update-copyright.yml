@@ -1,0 +1,47 @@
+name: Update Copyright
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches:
+      - main
+    paths:
+      - ./src
+
+concurrency:
+  group: copyright-${{ github.ref }}-${{ github.job }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  update-copyright:
+    name: Update Copyright
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Source
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Update Copyright
+        id: update-copyright
+        uses: Coderrob/add-copyright@v1
+        with:
+          name: "Robert Lindley"
+          license: apache-2.0
+
+      - name: Commit and Push changes
+        id: commit-and-push-changes
+        uses: ./
+        with:
+          branch: copyright
+          create-branch: true
+          directory-path: ./src
