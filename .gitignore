@@ -128,3 +128,9 @@ dist
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# Continue.ai
+.continue
+
+# Test output
+__tests__/test_workspace/

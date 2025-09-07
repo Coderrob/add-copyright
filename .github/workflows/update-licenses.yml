@@ -1,0 +1,57 @@
+name: Update Licenses
+
+on:
+  schedule:
+    # Run monthly on the 1st at 00:00 UTC
+    - cron: "0 0 1 * *"
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  update-licenses:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure Script Permission
+        run: chmod +x scripts/update_licenses.sh
+
+      - name: Update Licenses
+        run: ./scripts/update_licenses.sh
+
+      - name: Check for Changes
+        id: check-changes
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and Push Changes
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git add licenses/
+          git commit -m "Update licenses from SPDX license-list-data"
+          git push
+
+      - name: Create Pull Request
+        if: steps.check-changes.outputs.changes == 'true'
+        uses: peter-evans/create-pull-request@v5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Update licenses from SPDX license-list-data
+          title: "Update Licenses from SPDX"
+          body: |
+            This PR updates the license files from the latest SPDX license-list-data repository.
+
+            Changes:
+            - Fetched latest licenses from https://github.com/spdx/license-list-data/tree/main/text
+            - Normalized copyright notices to use {{COPYRIGHT_NOTICE}} placeholder
+          branch: update-licenses
+          delete-branch: true

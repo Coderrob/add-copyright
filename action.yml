@@ -1,7 +1,7 @@
 author: Robert Lindley
 name: Copyright and License
-description: Automatically adds a copyright header to all source files
-  in the repository based on the selected open-source license.
+description: |
+  Adds copyright headers and license texts to source files using SPDX, supporting 750+ licenses.
 
 branding:
   color: yellow
@@ -13,7 +13,7 @@ inputs:
     required: true
 
   license:
-    description: "License type (apache-2.0, mit, gpl-3.0, bsd-3-clause, other)"
+    description: "License type (any current SPDX license identifier, e.g., MIT, Apache-2.0, GPL-3.0-only, BSD-3-Clause)"
     required: true
 
   working-directory:

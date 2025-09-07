@@ -1,167 +1,152 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# filepath: scripts/copyright.sh
 
-# Copyright (c) 2025 Robert Lindley
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+set -euo pipefail
 
-set -e # Ensure strict error handling
+# --- Constants ---
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly LICENSES_DIR="licenses"
+readonly TMP_FILE="$(mktemp)"
+readonly CURRENT_YEAR="$(date +"%Y")"
 
-# Directory containing license text files
-LICENSES_DIR="licenses"
+# --- Logging ---
+log() {
+  local level="$1"; shift
+  printf '%s [%s] %s: %s\n' "$(date +'%Y-%m-%dT%H:%M:%S%z')" "$SCRIPT_NAME" "$level" "$*" >&2
+}
+log_info()    { log "INFO" "$@"; }
+log_warn()    { log "WARN" "$@"; }
+log_error()   { log "ERROR" "$@"; }
+log_debug()   { [[ "${DEBUG:-}" == "1" ]] && log "DEBUG" "$@"; }
 
-# Get the current year dynamically
-CURRENT_YEAR=$(date +"%Y")
+# --- Error Handling ---
+trap 'log_error "Error on line $LINENO: $BASH_COMMAND"; rm -f "$TMP_FILE"; exit 1' ERR
+trap 'rm -f "$TMP_FILE"' EXIT
 
-# Define supported file extensions and their respective comment styles
+# --- Check Dependencies ---
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || { log_error "Missing required command: $1"; exit 2; }
+}
+for cmd in git sed awk find mktemp; do require_cmd "$cmd"; done
+
+# --- Comment Styles ---
 declare -A COMMENT_STYLES=(
-  ["sh"]="#"
-  ["py"]="#"
-  ["js"]="/*"
-  ["ts"]="/*"
-  ["java"]="/*"
-  ["cpp"]="/*"
-  ["hpp"]="/*"
-  ["c"]="/*"
-  ["h"]="/*"
-  ["cs"]="/*"
-  ["go"]="//"
-  ["swift"]="//"
-  ["php"]="/*"
-  ["rb"]="#"
+  [sh]="#"
+  [py]="#"
+  [js]="/*"
+  [ts]="/*"
+  [java]="/*"
+  [cpp]="/*"
+  [hpp]="/*"
+  [c]="/*"
+  [h]="/*"
+  [cs]="/*"
+  [go]="//"
+  [swift]="//"
+  [php]="/*"
+  [rb]="#"
 )
 
-# Function: should_ignore_file
-# Checks whether a file should be ignored based on Git's ignore rules and specific patterns.
+# --- Functions ---
 should_ignore_file() {
   local file="$1"
-
-  # Check if Git ignore rules apply
   git check-ignore -q "$file" && return 0
-
-  # Ignore ESLint config files
   [[ "$file" == *".eslintrc"* || "$file" == "eslint.config."* ]] && return 0
-
   return 1
 }
 
-# Function: get_comment_style
-# Determines the appropriate comment style based on the file extension.
 get_comment_style() {
-  local file="$1"
-  local ext="${file##*.}"
-
-  # Return the associated comment style or an empty string if not found
-  echo "${COMMENT_STYLES[$ext]:-}"
+  local ext="${1##*.}"
+  printf '%s' "${COMMENT_STYLES[$ext]:-}"
 }
 
-# Function: get_license_text
-# Retrieves and formats the license text by replacing the placeholder with the actual copyright notice.
 get_license_text() {
-  local license="$1"
-  local title="$2"
+  local license="$1" title="$2"
   local license_file="$LICENSES_DIR/$license.txt"
-
   if [[ ! -f "$license_file" ]]; then
-    echo "Error: License file '$license_file' not found." >&2
-    exit 1
+    # Try lowercase
+    license_file="$LICENSES_DIR/${license,,}.txt"
   fi
-
-  # Replace the placeholder {{COPYRIGHT_NOTICE}} with the actual copyright statement
+  if [[ ! -f "$license_file" ]]; then
+    # Try uppercase
+    license_file="$LICENSES_DIR/${license^^}.txt"
+  fi
+  [[ -f "$license_file" ]] || { log_error "License file '$license_file' not found."; exit 3; }
   sed "s/{{COPYRIGHT_NOTICE}}/Copyright (c) $CURRENT_YEAR $title/g" "$license_file"
 }
 
-# Function: format_license_notice
-# Formats the license text using the appropriate comment style for the file type.
 format_license_notice() {
-  local license_text="$1"
-  local style="$2"
-
-  if [[ "$style" == "/*" ]]; then
-    {
-      echo "/*"
-      echo "$license_text" | sed 's/^/ * /'
-      echo " */"
-      echo "" # Ensure a blank line after the license block
-    }
-  elif [[ "$style" == "//" ]]; then
-    {
-      echo "$license_text" | sed 's/^/\/\//'
-      echo "" # Ensure a blank line after the license
-    }
-  else
-    {
-      echo "$license_text" | sed 's/^/'"$style"' /'
-      echo "" # Ensure a blank line after the license
-    }
-  fi
+  local license_text="$1" style="$2"
+  case "$style" in
+    "/*")
+      printf '/*\n'
+      printf '%s\n' "$license_text" | sed 's/^/ * /'
+      printf ' */\n\n'
+      ;;
+    "//")
+      printf '%s\n' "$license_text" | sed 's/^/\/\//'
+      printf '\n'
+      ;;
+    *)
+      printf '%s\n' "$license_text" | sed "s/^/$style /"
+      printf '\n'
+      ;;
+  esac
 }
 
-# Function: prepend_license
-# Adds the formatted license notice to the beginning of a file, ensuring it is not duplicated.
 prepend_license() {
-  local file="$1"
-  local license="$2"
-  local title="$3"
+  local file="$1" license="$2" title="$3"
+  local comment_style license_text formatted_notice
 
-  # Determine the comment style for the given file type
-  local comment_style
-  comment_style=$(get_comment_style "$file")
+  comment_style="$(get_comment_style "$file")"
+  [[ -z "$comment_style" ]] && { log_debug "No comment style for $file"; return; }
 
-  # Skip files without a recognized comment style
-  [[ -z "$comment_style" ]] && return
+  license_text="$(get_license_text "$license" "$title")"
+  grep -q "Copyright (c) $CURRENT_YEAR $title" "$file" && {
+    log_info "Skipping (already has license): $file"
+    return
+  }
 
-  # Retrieve and format the license text
-  local license_text
-  license_text=$(get_license_text "$license" "$title")
-
-  # Check if the file already contains the copyright notice
-  grep -q "Copyright (c) $CURRENT_YEAR $title" "$file" && return
-
-  # Format the license text with appropriate commenting
-  local formatted_notice
-  formatted_notice=$(format_license_notice "$license_text" "$comment_style")
-
-  # Prepend the license notice to the file, ensuring a blank line after it
-  {
-    echo "$formatted_notice"
-    echo "" # Extra newline before the file content
-    cat "$file"
-  } >temp_file && mv temp_file "$file"
-
-  echo "Updated: $file"
+  formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
+  { printf '%s\n' "$formatted_notice"; cat "$file"; } > "$TMP_FILE"
+  mv "$TMP_FILE" "$file"
+  log_info "Updated: $file"
 }
 
-# Function: scan_directory
-# Recursively scans a directory and applies the license to applicable files.
 scan_directory() {
-  local dir="$1"
-  local license="$2"
-  local title="$3"
-
-  find "$dir" -type f | while read -r file; do
-    should_ignore_file "$file" || prepend_license "$file" "$license" "$title"
-  done
+  local dir="$1" license="$2" title="$3"
+  local processed=0 skipped=0 errors=0
+  while IFS= read -r -d '' file; do
+    if should_ignore_file "$file"; then
+      log_debug "Ignored: $file"
+      ((skipped++))
+    else
+      if prepend_license "$file" "$license" "$title"; then
+        ((processed++))
+      else
+        ((errors++))
+      fi
+    fi
+  done < <(find "$dir" -type f -print0)
+  log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
 }
 
-# Ensure correct script usage
-if [[ $# -ne 3 ]]; then
-  echo "Usage: $0 <directory> <license-type> <copyright-title>"
+print_help() {
+  printf 'Usage: %s <directory> <license-type> <copyright-title>\n' "$SCRIPT_NAME"
   exit 1
-fi
+}
+
+# --- Main ---
+[[ $# -eq 3 ]] || print_help
 
 LICENSE_TYPE="$2"
 COPYRIGHT_TITLE="$3"
 
-echo "Processing with license: $LICENSE_TYPE, Title: $COPYRIGHT_TITLE..."
+log_info "Starting license processing..."
+log_info "Directory: $1"
+log_info "License Type: $LICENSE_TYPE"
+log_info "Copyright Title: $COPYRIGHT_TITLE"
+
 scan_directory "$1" "$LICENSE_TYPE" "$COPYRIGHT_TITLE"
-echo "Processing complete."
+
+log_info "Processing complete."
