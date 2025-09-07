@@ -1,3 +1,20 @@
+# GitHub Actions Workflow: Update Licenses
+# ========================================
+#
+# This workflow automatically updates the license database by fetching
+# the latest license information from the SPDX License List Data repository.
+# It runs monthly on the 1st of each month and can also be triggered manually.
+#
+# Triggers:
+# - Scheduled: Monthly (1st of each month at 00:00 UTC)
+# - Manual: Via GitHub Actions UI or API
+#
+# Jobs:
+# - update-licenses: Updates license database and creates PR if changes
+#
+# Author: Robert Lindley
+# License: Apache-2.0
+
 name: Update Licenses
 
 on:

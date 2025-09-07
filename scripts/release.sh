@@ -1,6 +1,28 @@
 #!/usr/bin/env bash
 # filepath: scripts/release.sh
 
+# Release Management Script
+# =========================
+#
+# This script automates the release process for the project, including:
+# - Creating semantic version tags
+# - Managing major version tags
+# - Pushing tags to remote repository
+# - Creating release branches for major versions
+#
+# Features:
+# - Validates semantic versioning format (vX.X.X)
+# - Handles major version releases with dedicated branches
+# - Updates major version tags automatically
+# - Provides colored output for better visibility
+#
+# Usage: ./release.sh
+#
+# Dependencies: git, expr
+#
+# Author: Robert Lindley
+# License: Apache-2.0
+
 set -euo pipefail
 
 # --- Constants ---
@@ -48,14 +70,33 @@ else
 fi
 
 # --- Functions ---
+
+# get_latest_tag()
+# Retrieves the latest semantic version tag from the repository.
+#
+# Returns:
+#   Latest tag in vX.X.X format, or "[unknown]" if no tags found
 get_latest_tag() {
   git describe --abbrev=0 --match="$SEMVER_TAG_GLOB" 2>/dev/null || printf '%s' "[unknown]"
 }
 
+# validate_tag()
+# Validates that a tag follows semantic versioning format (vX.X.X).
+#
+# Arguments:
+#   tag: Tag to validate
+#
+# Returns:
+#   0 if valid, 1 if invalid
 validate_tag() {
   [[ "$1" =~ $SEMVER_TAG_REGEX ]]
 }
 
+# update_package_version()
+# Prompts user to confirm that package.json version matches the new tag.
+#
+# Arguments:
+#   tag: New version tag
 update_package_version() {
   local tag="$1"
 
@@ -69,6 +110,13 @@ update_package_version() {
   fi
 }
 
+# create_tag()
+# Creates an annotated git tag with the specified message.
+#
+# Arguments:
+#   tag: Tag name
+#   message: Tag annotation message
+#   force: Optional "--force" flag for overwriting existing tags
 create_tag() {
   local tag="$1"
   local message="$2"
@@ -78,6 +126,15 @@ create_tag() {
   log_info "Tagged: ${BOLD_GREEN}$tag${OFF}"
 }
 
+# is_major_release()
+# Determines if a new tag represents a major version release.
+#
+# Arguments:
+#   latest_tag: Current latest tag
+#   new_tag: New tag to check
+#
+# Returns:
+#   0 if major release, 1 otherwise
 is_major_release() {
   local latest_tag="$1"
   local new_tag="$2"
@@ -94,6 +151,15 @@ is_major_release() {
   [[ "$latest_major" != "$new_major" ]]
 }
 
+# update_major_tags()
+# Updates major version tags when a new release is created.
+# For major releases, creates a new major version tag.
+# For minor/patch releases, syncs the major tag with the new release.
+#
+# Arguments:
+#   is_major: Boolean indicating if this is a major release
+#   new_tag: New version tag
+#   latest_tag: Previous latest tag
 update_major_tags() {
   local is_major="$1"
   local new_tag="$2"
@@ -112,6 +178,13 @@ update_major_tags() {
   fi
 }
 
+# push_tags()
+# Pushes all created tags to the remote repository.
+#
+# Arguments:
+#   is_major: Boolean indicating if this is a major release
+#   new_tag: New version tag
+#   latest_tag: Previous latest tag
 push_tags() {
   local is_major="$1"
   local new_tag="$2"
@@ -131,6 +204,12 @@ push_tags() {
   fi
 }
 
+# create_release_branch()
+# Creates a new release branch for major version releases.
+#
+# Arguments:
+#   new_tag: New version tag
+#   latest_tag: Previous latest tag
 create_release_branch() {
   local new_tag="$1"
   local latest_tag="$2"

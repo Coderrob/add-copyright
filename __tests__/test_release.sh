@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 # filepath: __tests__/test_release.sh
 
+# Release Script Test Suite
+# =========================
+#
+# This test suite validates the functionality of the release.sh script.
+# It tests the release process including tag creation and validation.
+#
+# Tests:
+# - Semantic version tag creation
+# - Git tag management
+# - Release workflow simulation
+#
+# Usage: ./test_release.sh
+#
+# Dependencies: git, bash
+#
+# Author: Robert Lindley
+# License: MIT
+
 set -euo pipefail
 
 # --- Test Setup ---
