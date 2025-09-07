@@ -31,7 +31,8 @@ set -euo pipefail
 
 # --- Constants ---
 readonly SCRIPT_NAME="$(basename "$0")"
-readonly LICENSES_DIR="licenses"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
 readonly TMP_FILE="$(mktemp)"
 readonly CURRENT_YEAR="$(date +"%Y")"
 
@@ -98,7 +99,7 @@ declare -A COMMENT_STYLES=(
 
 # should_ignore_file()
 # Determines if a file should be ignored during processing.
-# Files are ignored if they are in .gitignore or are common config files.
+# Files are ignored if they are in .gitignore, common config files, or common directories.
 #
 # Arguments:
 #   file: Path to the file to check
@@ -107,8 +108,20 @@ declare -A COMMENT_STYLES=(
 #   0 if file should be ignored, 1 otherwise
 should_ignore_file() {
   local file="$1"
+
+  # Check .gitignore first
   git check-ignore -q "$file" && return 0
+
+  # Common config files
   [[ "$file" == *".eslintrc"* || "$file" == "eslint.config."* ]] && return 0
+
+  # Common directories to exclude
+  [[ "$file" == *"/.git/"* || "$file" == *"/node_modules/"* || "$file" == *"/.next/"* ]] && return 0
+  [[ "$file" == *"/dist/"* || "$file" == *"/build/"* || "$file" == *"/.cache/"* ]] && return 0
+  [[ "$file" == *"/.vscode/"* || "$file" == *"/.idea/"* || "$file" == *"/__pycache__/"* ]] && return 0
+  [[ "$file" == *"/.github/"* || "$file" == *"/.continue/"* ]] && return 0
+  [[ "$file" == *"/.DS_Store"* || "$file" == *"Thumbs.db"* ]] && return 0
+
   return 1
 }
 
@@ -219,6 +232,7 @@ create_root_license_if_missing() {
 
 # format_license_notice()
 # Formats the license text with appropriate comment style for the file type.
+# Ensures consistent formatting with exactly one newline at the end.
 #
 # Arguments:
 #   license_text: Raw license text
@@ -232,15 +246,13 @@ format_license_notice() {
     "/*")
       printf '/*\n'
       printf '%s\n' "$license_text" | sed 's/^/ * /'
-      printf ' */\n\n'
+      printf ' */\n'
       ;;
     "//")
       printf '%s\n' "$license_text" | sed 's/^/\/\//'
-      printf '\n'
       ;;
     *)
       printf '%s\n' "$license_text" | sed "s/^/$style /"
-      printf '\n'
       ;;
   esac
 }
@@ -268,6 +280,8 @@ prepend_license() {
 
   formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
   echo "Formatted notice: $formatted_notice" >&2
+
+  # Prepend the formatted notice with a blank line after it
   { printf '%s\n' "$formatted_notice"; cat "$file"; } > "$TMP_FILE"
   echo "TMP_FILE: $TMP_FILE" >&2
   mv "$TMP_FILE" "$file"
@@ -286,6 +300,8 @@ prepend_license() {
 scan_directory() {
   local dir="$1" license="$2" title="$3"
   local processed=0 skipped=0 errors=0
+
+  # Use find with prune to exclude common directories for better performance
   while IFS= read -r -d '' file; do
     echo "Processing file: $file" >&2
     if should_ignore_file "$file"; then
@@ -298,7 +314,8 @@ scan_directory() {
         ((errors++))
       fi
     fi
-  done < <(find "$dir" -type f -print0) || true
+  done < <(find "$dir" -type d \( -name .git -o -name node_modules -o -name .next -o -name dist -o -name build -o -name .cache -o -name .vscode -o -name .idea -o -name __pycache__ -o -name .github -o -name .continue \) -prune -o -type f -print0) || true
+
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
 }
 
