@@ -31,13 +31,13 @@ runs:
     - name: Ensure Script Permission
       id: ensure-executable
       shell: bash
-      run: chmod +x "${{ github.action_path }}/scripts/copyright.sh"
+      run: chmod +x "$GITHUB_ACTION_PATH/scripts/copyright.sh"
 
     - name: Execute Copyright Update
       id: execute-update
       shell: bash
       run: |
-        "${{ github.action_path }}/scripts/copyright.sh" \
+        "$GITHUB_ACTION_PATH/scripts/copyright.sh" \
         "${{ inputs.working-directory }}" \
         "${{ inputs.license }}" \
         "${{ inputs.name }}"

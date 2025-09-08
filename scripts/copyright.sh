@@ -37,7 +37,7 @@ readonly TMP_FILE="$(mktemp)"
 readonly CURRENT_YEAR="$(date +"%Y")"
 
 # File processing constants
-readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue"
+readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
 readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
 
 # Required commands

@@ -1,0 +1,16 @@
+{
+  "name": "add-copyright - devcontainer (with act)",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/act:1": {}
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-vscode-remote.remote-containers"]
+    }
+  },
+  "remoteUser": "vscode",
+  "workspaceFolder": "/workspaces/add-copyright"
+}
