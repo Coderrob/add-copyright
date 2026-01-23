@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  bash-tests:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run bash tests
+        id: run-bash-tests
+        run: |
+          set -euo pipefail
+          chmod +x scripts/run_tests.sh
+          ./scripts/run_tests.sh
+
+      - name: Shellcheck scripts
+        id: shellcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -y
+          sudo apt-get install -y shellcheck
+          shellcheck scripts/*.sh __tests__/*.sh
+
+  action-integration:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create sample file
+        id: create-sample-file
+        run: |
+          set -euo pipefail
+          mkdir -p src
+          echo "// sample" > src/example.js
+
+      - name: Run action from repository
+        id: run-action
+        uses: ./
+        with:
+          name: "Test Runner"
+          license: MIT
+          working-directory: ./src
+
+      - name: Show updated file
+        id: show-updated-file
+        run: |
+          set -euo pipefail
+          echo "---- Updated file content ----"
+          if [ -f ./src/example.js ]; then
+            sed -n '1,120p' ./src/example.js || true
+          else
+            echo "(file not present)"
+          fi
+          echo "---- end ----"

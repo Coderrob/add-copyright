@@ -23,45 +23,52 @@ on:
     - cron: "0 0 1 * *"
   workflow_dispatch: # Allow manual trigger
 
+permissions:
+  contents: write
+  pull-requests: write
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   update-licenses:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
+        id: checkout
         uses: actions/checkout@v4
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Ensure Script Permission
+        id: ensure-script-permission
         run: chmod +x scripts/update_licenses.sh
 
       - name: Update Licenses
+        id: update-licenses
         run: ./scripts/update_licenses.sh
 
       - name: Check for Changes
         id: check-changes
         run: |
+          set -euo pipefail
           if [[ -n $(git status --porcelain) ]]; then
             echo "changes=true" >> $GITHUB_OUTPUT
           else
             echo "changes=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Commit and Push Changes
-        if: steps.check-changes.outputs.changes == 'true'
-        run: |
-          git config --global user.name 'github-actions[bot]'
-          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add licenses/
-          git commit -m "Update licenses from SPDX license-list-data"
-          git push
-
       - name: Create Pull Request
+        id: create-pull-request
         if: steps.check-changes.outputs.changes == 'true'
         uses: peter-evans/create-pull-request@v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          committer: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
+          author: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
           commit-message: Update licenses from SPDX license-list-data
           title: "Update Licenses from SPDX"
           body: |
