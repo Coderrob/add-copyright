@@ -17,20 +17,14 @@
 set -euo pipefail
 
 # --- Configuration ---
-SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_NAME
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly SCRIPT_DIR
-readonly LICENSES_DIR="${GITHUB_ACTION_PATH:-${SCRIPT_DIR}/..}/licenses"
-TMP_FILE="$(mktemp)"
-readonly TMP_FILE
-CURRENT_YEAR="$(date +"%Y")"
-readonly CURRENT_YEAR
-
-# File processing constants
+readonly SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
+readonly TMP_FILE="tmp.$$"
+readonly CURRENT_YEAR="$(date +"%Y")"
 readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
 readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
-readonly REQUIRED_COMMANDS="git sed find mktemp jq grep zcat"
+readonly REQUIRED_COMMANDS="git sed find mktemp jq grep"
 
 USE_GIT=0
 GIT_ROOT=""
@@ -53,9 +47,7 @@ log_debug() { [[ "${DEBUG:-}" == "1" ]] && log "DEBUG" "$@"; }
 # --- Error Handling ---
 # cleanup: Removes temporary files created during script execution.
 cleanup() {
-  if [[ -f "$TMP_FILE" ]]; then
-    rm "$TMP_FILE" 2>/dev/null
-  fi
+  [[ -f "$TMP_FILE" ]] && rm "$TMP_FILE" 2>/dev/null || true
 }
 
 # on_error: Handles script errors by logging the exit code and cleaning up.
@@ -113,11 +105,7 @@ verify_dependencies() {
 extract_json_field() {
   local file="$1" field="$2"
   local result
-  if [[ "$file" == *.gz ]]; then
-    result="$(zcat "$file" | jq -r "$field" 2>/dev/null)" || return 1
-  else
-    result="$(jq -r "$field" "$file" 2>/dev/null)" || return 1
-  fi
+  result="$(jq -r "$field" "$file" 2>/dev/null)" || return 1
   [[ "$result" == "null" || -z "$result" ]] && printf '%s' "" || printf '%s' "$result"
 }
 
@@ -170,10 +158,10 @@ format_license_notice() {
   esac
 }
 
-# escape_sed_replacement: Escapes special characters for sed replacement strings.
+# escape_sed_replacement: Escapes special characters for sed replacement.
 # Arguments: text
 escape_sed_replacement() {
-  printf '%s' "$1" | sed -e 's/[\\&]/\\&/g'
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
 }
 
 # process_license_placeholders: Replaces placeholders in license text with actual values.
@@ -213,11 +201,7 @@ find_license_json() {
     "$LICENSES_DIR/$license.json" \
     "$LICENSES_DIR/${license,,}.json" \
     "$LICENSES_DIR/${license^^}.json" \
-    "$LICENSES_DIR/${license^}.json" \
-    "$LICENSES_DIR/$license.json.gz" \
-    "$LICENSES_DIR/${license,,}.json.gz" \
-    "$LICENSES_DIR/${license^^}.json.gz" \
-    "$LICENSES_DIR/${license^}.json.gz"
+    "$LICENSES_DIR/${license^}.json"
 }
 
 # find_license_txt: Finds the TXT license file for a given license type.
@@ -288,7 +272,6 @@ is_excluded_file() {
   filename="$(basename "$1")"
   local pattern
   for pattern in $EXCLUDED_FILES; do
-    # shellcheck disable=SC2053
     [[ "$filename" == $pattern ]] && return 0
   done
   return 1
@@ -321,17 +304,23 @@ should_ignore_file() {
   return 1
 }
 
+# build_find_prune_args: Builds arguments for find command to prune excluded directories.
+build_find_prune_args() {
+  local args=""
+  local dir
+  for dir in $EXCLUDED_DIRS; do
+    args="$args -name $dir -o"
+  done
+  printf '%s' "${args% -o}"
+}
+
 # find_files_to_process: Finds all files in a directory that should be processed.
 # Arguments: directory
 find_files_to_process() {
   local dir="$1"
-  local -a prune_args=()
-  local d
-  for d in $EXCLUDED_DIRS; do
-    [[ ${#prune_args[@]} -gt 0 ]] && prune_args+=(-o)
-    prune_args+=(-name "$d")
-  done
-  find "$dir" -type d \( "${prune_args[@]}" \) -prune -o -type f -print0
+  local prune_args
+  prune_args="$(build_find_prune_args)"
+  find "$dir" -type d \( $prune_args \) -prune -o -type f -print0
 }
 
 # --- File Updates ---
@@ -339,7 +328,7 @@ find_files_to_process() {
 # Arguments: file_path, title
 has_current_copyright() {
   local file="$1" title="$2"
-  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
+  grep -Fq "Copyright $CURRENT_YEAR $title" "$file"
 }
 
 # create_temp_file: Creates a temporary file with license notice prepended to file content.
@@ -402,7 +391,7 @@ scan_directory() {
 
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
 
-  [[ $errors -gt 0 ]] && return 1 || return 0
+  return $errors
 }
 
 # --- Root LICENSE ---
@@ -481,7 +470,8 @@ main() {
   log_info "Copyright Title: $copyright_title"
 
   init_git_context "$directory"
-  scan_directory "$directory" "$license_type" "$copyright_title" || exit 1
+  scan_directory "$directory" "$license_type" "$copyright_title"
+  [[ $? -gt 0 ]] && exit 1
 
   # Optional: Create root license file
   # create_root_license "$license_type" "$copyright_title"

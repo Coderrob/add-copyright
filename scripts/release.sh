@@ -20,8 +20,7 @@
 set -euo pipefail
 
 # --- Constants ---
-SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_NAME
+readonly SCRIPT_NAME="$(basename "$0")"
 readonly SEMVER_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly SEMVER_TAG_GLOB='v[0-9].[0-9].[0-9]*'
 readonly GIT_REMOTE='origin'
@@ -90,12 +89,6 @@ major_of_tag() {
   printf '%s' "${tag%%.*}"
 }
 
-# major_tag_of: Returns the major version tag with 'v' prefix.
-# Arguments: tag
-major_tag_of() {
-  printf 'v%s' "$(major_of_tag "$1")"
-}
-
 # is_major_release: Determines if a new tag represents a major version release.
 # Arguments: latest_tag, new_tag
 is_major_release() {
@@ -143,6 +136,8 @@ create_tag() {
   log_info "Tagged: ${BOLD_GREEN}$tag${OFF}"
 }
 
+# update_major_tags: Updates major version tags based on release type.
+# Arguments: is_major, new_tag, latest_tag
 update_major_tags() {
   local is_major="$1"
   local new_tag="$2"
@@ -150,14 +145,14 @@ update_major_tags() {
 
   if [[ "$is_major" == "true" ]]; then
     local new_major
-    new_major="$(major_tag_of "$new_tag")"
+    new_major="$(major_of_tag "$new_tag")"
     log_info "Creating new major version tag: ${BOLD_GREEN}$new_major${OFF}"
     create_tag "$new_major" "$new_major Release"
     return 0
   fi
 
   local latest_major
-  latest_major="$(major_tag_of "$latest_tag")"
+  latest_major="$(major_of_tag "$latest_tag")"
   log_info "Syncing major version tag: ${BOLD_GREEN}$latest_major${OFF} with new tag: ${BOLD_GREEN}$new_tag${OFF}"
   create_tag "$latest_major" "Sync $latest_major tag with $new_tag" --force
 }
@@ -173,13 +168,13 @@ push_tags() {
 
   if [[ "$is_major" == "true" ]]; then
     local new_major
-    new_major="$(major_tag_of "$new_tag")"
+    new_major="$(major_of_tag "$new_tag")"
     log_info "Tags: ${BOLD_GREEN}$new_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
     return 0
   fi
 
   local latest_major
-  latest_major="$(major_tag_of "$latest_tag")"
+  latest_major="$(major_of_tag "$latest_tag")"
   git push "$GIT_REMOTE" "$latest_major" --force
   log_info "Tags: ${BOLD_GREEN}$latest_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
 }
@@ -193,7 +188,7 @@ create_release_branch() {
   [[ "$is_major" == "true" ]] || return 0
 
   local new_major
-  new_major="$(major_tag_of "$new_tag")"
+  new_major="$(major_of_tag "$new_tag")"
   log_info "Creating and pushing new releases branch for major version: ${BOLD_GREEN}$new_major${OFF}"
   git branch "releases/$new_major" "$new_major"
   git push --set-upstream "$GIT_REMOTE" "releases/$new_major"
