@@ -20,11 +20,11 @@ set -euo pipefail
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
-readonly TMP_FILE="tmp.$$"
+readonly TMP_FILE="$(mktemp)"
 readonly CURRENT_YEAR="$(date +"%Y")"
 readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
 readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
-readonly REQUIRED_COMMANDS="git sed find mktemp jq grep"
+readonly REQUIRED_COMMANDS="git sed find mktemp jq grep zcat"
 
 USE_GIT=0
 GIT_ROOT=""
@@ -105,7 +105,11 @@ verify_dependencies() {
 extract_json_field() {
   local file="$1" field="$2"
   local result
-  result="$(jq -r "$field" "$file" 2>/dev/null)" || return 1
+  if [[ "$file" == *.gz ]]; then
+    result="$(zcat "$file" | jq -r "$field" 2>/dev/null)" || return 1
+  else
+    result="$(jq -r "$field" "$file" 2>/dev/null)" || return 1
+  fi
   [[ "$result" == "null" || -z "$result" ]] && printf '%s' "" || printf '%s' "$result"
 }
 
@@ -201,7 +205,11 @@ find_license_json() {
     "$LICENSES_DIR/$license.json" \
     "$LICENSES_DIR/${license,,}.json" \
     "$LICENSES_DIR/${license^^}.json" \
-    "$LICENSES_DIR/${license^}.json"
+    "$LICENSES_DIR/${license^}.json" \
+    "$LICENSES_DIR/$license.json.gz" \
+    "$LICENSES_DIR/${license,,}.json.gz" \
+    "$LICENSES_DIR/${license^^}.json.gz" \
+    "$LICENSES_DIR/${license^}.json.gz"
 }
 
 # find_license_txt: Finds the TXT license file for a given license type.
