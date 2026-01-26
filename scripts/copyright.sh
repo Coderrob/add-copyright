@@ -328,7 +328,7 @@ find_files_to_process() {
 # Arguments: file_path, title
 has_current_copyright() {
   local file="$1" title="$2"
-  grep -Fq "Copyright $CURRENT_YEAR $title" "$file"
+  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
 }
 
 # create_temp_file: Creates a temporary file with license notice prepended to file content.
@@ -391,7 +391,7 @@ scan_directory() {
 
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
 
-  return $errors
+  [[ $errors -gt 0 ]] && return 1 || return 0
 }
 
 # --- Root LICENSE ---
@@ -470,8 +470,7 @@ main() {
   log_info "Copyright Title: $copyright_title"
 
   init_git_context "$directory"
-  scan_directory "$directory" "$license_type" "$copyright_title"
-  [[ $? -gt 0 ]] && exit 1
+  scan_directory "$directory" "$license_type" "$copyright_title" || exit 1
 
   # Optional: Create root license file
   # create_root_license "$license_type" "$copyright_title"
