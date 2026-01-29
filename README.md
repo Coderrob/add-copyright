@@ -1,6 +1,6 @@
 <p align="center">
   <img
-    src="public/img/add-copyright-small-logo.png"
+    src="public/img/add-copyright-logo-small.png"
     alt="Barrel Roll logo"
   />
 </p>
