@@ -32,7 +32,7 @@ set -uo pipefail  # Remove -e to be more tolerant of errors
 # --- Configuration ---
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
+readonly LICENSES_DIR="${GITHUB_ACTION_PATH:-${SCRIPT_DIR}/..}/licenses"
 readonly TMP_FILE="$(mktemp)"
 readonly CURRENT_YEAR="$(date +"%Y")"
 
@@ -167,7 +167,7 @@ format_license_notice() {
 # --- File Modification ---
 has_current_copyright() {
   local file="$1" title="$2"
-  grep -q "Copyright (c) $CURRENT_YEAR $title" "$file"
+  grep -qE "Copyright(\s+\(c\))?\s+$CURRENT_YEAR\s+$title" "$file"
 }
 
 create_temp_file() {
