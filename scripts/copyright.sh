@@ -17,11 +17,15 @@
 set -euo pipefail
 
 # --- Configuration ---
-readonly SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
-readonly TMP_FILE="$(mktemp)"
-readonly CURRENT_YEAR="$(date +"%Y")"
+TMP_FILE="$(mktemp)"
+readonly TMP_FILE
+CURRENT_YEAR="$(date +"%Y")"
+readonly CURRENT_YEAR
 readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
 readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
 readonly REQUIRED_COMMANDS="git sed find mktemp jq grep zcat"
@@ -47,7 +51,9 @@ log_debug() { [[ "${DEBUG:-}" == "1" ]] && log "DEBUG" "$@"; }
 # --- Error Handling ---
 # cleanup: Removes temporary files created during script execution.
 cleanup() {
-  [[ -f "$TMP_FILE" ]] && rm "$TMP_FILE" 2>/dev/null || true
+  if [[ -f "$TMP_FILE" ]]; then
+    rm "$TMP_FILE" 2>/dev/null
+  fi
 }
 
 # on_error: Handles script errors by logging the exit code and cleaning up.
@@ -280,6 +286,7 @@ is_excluded_file() {
   filename="$(basename "$1")"
   local pattern
   for pattern in $EXCLUDED_FILES; do
+    # shellcheck disable=SC2053
     [[ "$filename" == $pattern ]] && return 0
   done
   return 1
@@ -312,23 +319,17 @@ should_ignore_file() {
   return 1
 }
 
-# build_find_prune_args: Builds arguments for find command to prune excluded directories.
-build_find_prune_args() {
-  local args=""
-  local dir
-  for dir in $EXCLUDED_DIRS; do
-    args="$args -name $dir -o"
-  done
-  printf '%s' "${args% -o}"
-}
-
 # find_files_to_process: Finds all files in a directory that should be processed.
 # Arguments: directory
 find_files_to_process() {
   local dir="$1"
-  local prune_args
-  prune_args="$(build_find_prune_args)"
-  find "$dir" -type d \( $prune_args \) -prune -o -type f -print0
+  local -a prune_args=()
+  local d
+  for d in $EXCLUDED_DIRS; do
+    [[ ${#prune_args[@]} -gt 0 ]] && prune_args+=(-o)
+    prune_args+=(-name "$d")
+  done
+  find "$dir" -type d \( "${prune_args[@]}" \) -prune -o -type f -print0
 }
 
 # --- File Updates ---

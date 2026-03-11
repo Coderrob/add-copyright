@@ -12,7 +12,8 @@ test_copyright_check_mit() {
   local SRC_FILE="$TEST_DIR/test.js"
   local LICENSE_TYPE="MIT"
   local COPYRIGHT_HOLDER="MIT Test User"
-  local EXPECTED_COPYRIGHT="Copyright (c) $(date +"%Y") $COPYRIGHT_HOLDER"
+  local EXPECTED_COPYRIGHT
+  EXPECTED_COPYRIGHT="Copyright (c) $(date +"%Y") $COPYRIGHT_HOLDER"
 
   create_workspace "$TEST_DIR"
   write_file "$SRC_FILE" "console.log('test');"
@@ -38,7 +39,8 @@ test_copyright_check_apache() {
   local SRC_FILE="$TEST_DIR/test.py"
   local LICENSE_TYPE="apache-2.0"
   local COPYRIGHT_HOLDER="Apache Test User"
-  local EXPECTED_COPYRIGHT="Copyright $(date +"%Y") $COPYRIGHT_HOLDER"
+  local EXPECTED_COPYRIGHT
+  EXPECTED_COPYRIGHT="Copyright $(date +"%Y") $COPYRIGHT_HOLDER"
 
   create_workspace "$TEST_DIR"
   write_file "$SRC_FILE" "print('test')"
