@@ -167,7 +167,8 @@ format_license_notice() {
 # --- File Modification ---
 has_current_copyright() {
   local file="$1" title="$2"
-  grep -qE "Copyright(\s+\(c\))?\s+$CURRENT_YEAR\s+$title" "$file"
+  grep -qF "Copyright $CURRENT_YEAR $title" "$file" ||
+    grep -qF "Copyright (c) $CURRENT_YEAR $title" "$file"
 }
 
 create_temp_file() {

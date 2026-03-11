@@ -25,6 +25,7 @@ set -euo pipefail
 # --- Test Setup ---
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/../scripts/copyright.sh"
 TEST_DIR="$(mktemp -d)"
+GITHUB_ACTION_PATH_TEST_DIR=""
 SRC_FILE="$TEST_DIR/hello.ts"
 LICENSE_TYPE="apache-2.0"
 COPYRIGHT_HOLDER="Test User"
@@ -33,8 +34,10 @@ EXPECTED_HEADER="Copyright $(date +"%Y") $COPYRIGHT_HOLDER"
 # cleanup()
 # Removes test directory and files after test completion.
 cleanup() {
+  [[ -n "$GITHUB_ACTION_PATH_TEST_DIR" ]] && rm -rf "$GITHUB_ACTION_PATH_TEST_DIR"
   rm -rf "$TEST_DIR"
 }
+trap cleanup EXIT
 
 # Create test directory and sample TypeScript file
 echo -e "export const hello = () => 'Hello, world!';\n" > "$SRC_FILE"
@@ -49,7 +52,6 @@ if grep -q "$EXPECTED_HEADER" "$SRC_FILE"; then
 else
   echo "[FAIL] Copyright header missing in $SRC_FILE" >&2
   cat "$SRC_FILE" || true
-  cleanup
   exit 1
 fi
 
@@ -60,7 +62,6 @@ if [ "$(grep -c "$EXPECTED_HEADER" "$SRC_FILE")" -eq 1 ]; then
 else
   echo "[FAIL] Header duplicated on second run" >&2
   cat "$SRC_FILE" || true
-  cleanup
   exit 1
 fi
 
@@ -79,17 +80,11 @@ if GITHUB_ACTION_PATH="$ACTION_ROOT" "$SCRIPT_PATH" "$GITHUB_ACTION_PATH_TEST_DI
   else
     echo "[FAIL] GITHUB_ACTION_PATH license lookup failed to insert header" >&2
     cat "$GA_SRC_FILE" || true
-    rm -rf "$GITHUB_ACTION_PATH_TEST_DIR"
-    cleanup
     exit 1
   fi
 else
   echo "[FAIL] Script exited with error when GITHUB_ACTION_PATH is set" >&2
-  rm -rf "$GITHUB_ACTION_PATH_TEST_DIR"
-  cleanup
   exit 1
 fi
-rm -rf "$GITHUB_ACTION_PATH_TEST_DIR"
 
-# Clean up at the end, not via trap
-cleanup
+# Clean up is handled by the EXIT trap
