@@ -20,7 +20,8 @@
 set -euo pipefail
 
 # --- Constants ---
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
 readonly SEMVER_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly SEMVER_TAG_GLOB='v[0-9].[0-9].[0-9]*'
 readonly GIT_REMOTE='origin'
@@ -134,7 +135,11 @@ create_tag() {
   local message="$2"
   local force="${3:-}"
 
-  git tag "$tag" --annotate --message "$message" $force
+  if [[ -n "$force" ]]; then
+    git tag "$tag" --annotate --message "$message" "$force"
+  else
+    git tag "$tag" --annotate --message "$message"
+  fi
   log_info "Tagged: ${BOLD_GREEN}$tag${OFF}"
 }
 

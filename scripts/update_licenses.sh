@@ -17,11 +17,13 @@
 set -euo pipefail
 
 # --- Constants ---
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
 readonly SPDX_REPO="https://github.com/spdx/license-list-data.git"
 readonly SPDX_JSON_DIR="json/details"
 readonly LOCAL_LICENSES_DIR="licenses"
-readonly TMP_DIR="$(mktemp -d)"
+TMP_DIR="$(mktemp -d)"
+readonly TMP_DIR
 readonly SPDX_CLONE_DIR="$TMP_DIR/spdx-license-list-data"
 
 # --- Logging ---
