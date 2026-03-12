@@ -166,53 +166,10 @@ format_license_notice() {
   esac
 }
 
-# --- File Modification ---
-has_current_copyright() {
-  local file="$1" title="$2"
-  grep -qF "Copyright $CURRENT_YEAR $title" "$file" ||
-    grep -qF "Copyright (c) $CURRENT_YEAR $title" "$file"
-}
-
-create_temp_file() {
-  local content="$1" original_file="$2"
-  printf '%s\n' "$content" > "$TMP_FILE"
-  cat "$original_file" >> "$TMP_FILE"
-}
-
-replace_file() {
-  local source="$1" target="$2"
-  mv "$source" "$target"
-}
-
-prepend_license_to_file() {
-  local file="$1" license="$2" title="$3"
-
-  local comment_style
-  comment_style="$(get_comment_style "$file")"
-  [[ -z "$comment_style" ]] && { log_debug "No comment style for $file"; return 0; }
-
-  local license_text
-  if ! license_text="$(get_license_text "$license" "$title")"; then
-    log_error "Failed to get license text for $license"
-    return 1
-  fi
-
-  if has_current_copyright "$file" "$title"; then
-    log_info "Skipping (already has license): $file"
-    return 0
-  fi
-
-  local formatted_notice
-  formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
-
-  log_debug "Formatted notice: $formatted_notice"
-
-  # Prepend the formatted notice with a blank line after it
-  create_temp_file "$formatted_notice" "$file"
-  replace_file "$TMP_FILE" "$file"
-
-  log_info "Updated: $file"
-  return 0
+# escape_sed_replacement: Escapes special characters for sed replacement strings.
+# Arguments: text
+escape_sed_replacement() {
+  printf '%s' "$1" | sed -e 's/[\\&]/\\&/g'
 }
 
 # process_license_placeholders: Replaces placeholders in license text with actual values.
