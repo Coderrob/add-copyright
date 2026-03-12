@@ -24,11 +24,16 @@ if [[ ! -d "$TEST_DIR" ]]; then
   exit 2
 fi
 
-for test_file in "$TEST_DIR"/test_*.sh; do
-  if [[ ! -f "$test_file" ]]; then
-    echo "No test files found in $TEST_DIR" >&2
-    exit 3
-  fi
+shopt -s nullglob
+test_files=( "$TEST_DIR"/test_*.sh )
+shopt -u nullglob
+
+if (( ${#test_files[@]} == 0 )); then
+  echo "No test files found in $TEST_DIR" >&2
+  exit 3
+fi
+
+for test_file in "${test_files[@]}"; do
   echo "Running $test_file"
   bash "$test_file"
   echo ""
