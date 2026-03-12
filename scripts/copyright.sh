@@ -21,7 +21,7 @@ SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
+readonly LICENSES_DIR="${GITHUB_ACTION_PATH:-${SCRIPT_DIR}/..}/licenses"
 TMP_FILE="$(mktemp)"
 readonly TMP_FILE
 CURRENT_YEAR="$(date +"%Y")"
