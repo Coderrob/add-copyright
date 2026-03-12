@@ -6,7 +6,7 @@ on:
     branches:
       - main
     paths:
-      - ./src
+      - src/**
 
 concurrency:
   group: copyright-${{ github.ref }}-${{ github.job }}
@@ -30,6 +30,9 @@ jobs:
       - name: Checkout Source
         id: checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: true
 
       - name: Update Copyright
         id: update-copyright

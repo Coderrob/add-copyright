@@ -1,7 +1,16 @@
+<p align="center">
+  <img
+    src="public/img/add-copyright-logo-small.png"
+    alt="Barrel Roll logo"
+  />
+</p>
+
 # Copyright and License
 
 [![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/features/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/Coderrob/add-copyright)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![SPDX](https://img.shields.io/badge/SPDX--License--List-3.20-blue.svg)](https://spdx.org/licenses/)
 
 A GitHub Action that automatically adds copyright headers and full license texts to source files based on SPDX license identifiers. Supports 700+ current open-source licenses with automatic monthly updates from the official SPDX License List Data repository. Ensures compliance and consistency across your codebase.
@@ -27,6 +36,7 @@ A GitHub Action that automatically adds copyright headers and full license texts
 - [Contributing](#-contributing)
 - [Troubleshooting](#-troubleshooting)
 - [License](#-license)
+- [Changelog](CHANGELOG.md)
 
 ## 🚀 Quick Start
 
@@ -37,7 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Add Copyright Headers
-        uses: CoderRob/add-copyright@v1
+        uses: Coderrob/add-copyright@v1
         with:
           name: "Your Company Name"
           license: "MIT"
@@ -48,9 +58,9 @@ jobs:
 
 | Name                | Description                                                                   | Required | Default | Example        |
 | ------------------- | ----------------------------------------------------------------------------- | -------- | ------- | -------------- |
-| `name`              | Name of the copyright holder                                                  | ✅ Yes    | -       | `"Acme Corp"`  |
-| `license`           | SPDX license identifier (see [SPDX License List](https://spdx.org/licenses/)) | ✅ Yes    | -       | `"Apache-2.0"` |
-| `working-directory` | Directory to scan for source files                                            | ❌ No     | `.`     | `"src"`        |
+| `name`              | Name of the copyright holder                                                  | ✅ Yes   | -       | `"Acme Corp"`  |
+| `license`           | SPDX license identifier (see [SPDX License List](https://spdx.org/licenses/)) | ✅ Yes   | -       | `"Apache-2.0"` |
+| `working-directory` | Directory to scan for source files                                            | ❌ No    | `.`     | `"src"`        |
 
 ## 📤 Outputs
 
@@ -81,7 +91,7 @@ The action automatically detects file types and applies appropriate comment styl
 
 ```yaml
 - name: Add MIT License Headers
-  uses: CoderRob/add-copyright@v1
+  uses: Coderrob/add-copyright@v1
   with:
     name: "John Doe"
     license: "MIT"
@@ -91,7 +101,7 @@ The action automatically detects file types and applies appropriate comment styl
 
 ```yaml
 - name: Add Apache 2.0 License to All Source Files
-  uses: CoderRob/add-copyright@v1
+  uses: Coderrob/add-copyright@v1
   with:
     name: "Acme Corporation"
     license: "Apache-2.0"
@@ -102,14 +112,14 @@ The action automatically detects file types and applies appropriate comment styl
 
 ```yaml
 - name: Add License to Frontend Code
-  uses: CoderRob/add-copyright@v1
+  uses: Coderrob/add-copyright@v1
   with:
     name: "My Project"
     license: "GPL-3.0-only"
     working-directory: "frontend"
 
 - name: Add License to Backend Code
-  uses: CoderRob/add-copyright@v1
+  uses: Coderrob/add-copyright@v1
   with:
     name: "My Project"
     license: "GPL-3.0-only"
@@ -132,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Add Copyright
-        uses: CoderRob/add-copyright@v1
+        uses: Coderrob/add-copyright@v1
         with:
           name: "My Organization"
           license: ${{ matrix.license }}
@@ -170,7 +180,7 @@ Or execute the update script locally:
 
 ```bash
 # Clone the repository
-git clone https://github.com/CoderRob/add-copyright.git
+git clone https://github.com/Coderrob/add-copyright.git
 cd add-copyright
 
 # Update license database
@@ -218,7 +228,7 @@ Manages the release process, including creating semantic version tags and releas
 
 ```bash
 # Run the test suite
-npm test
+./scripts/run_tests.sh
 
 # Test specific functionality
 ./__tests__/test_copyright.sh
@@ -232,10 +242,9 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 1. Fork the repository
 2. Clone your fork: `git clone https://github.com/your-username/add-copyright.git`
-3. Install dependencies: `npm install`
-4. Make your changes
-5. Run tests: `npm test`
-6. Submit a pull request
+3. Make your changes
+4. Run tests: `./scripts/run_tests.sh`
+5. Submit a pull request
 
 ### Adding Support for New Languages
 
@@ -288,10 +297,6 @@ Enable debug logging by setting the `DEBUG` environment variable:
 DEBUG=1 ./scripts/copyright.sh /path/to/project MIT "Your Name"
 ```
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## 🙏 Acknowledgments
 
 - [SPDX License List Data](https://github.com/spdx/license-list-data) for license information
@@ -300,22 +305,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**Author**: [Robert Lindley](https://github.com/CoderRob)  
-**Repository**: [https://github.com/CoderRob/add-copyright](https://github.com/CoderRob/add-copyright)
+## License
 
-## 📝 Changelog
+This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
 
-### v1.0.0 (Latest)
+## Ownership
 
-- Initial release with support for 700+ SPDX licenses
-- Multi-language support with automatic comment style detection
-- Monthly automatic license database updates
-- Git integration with .gitignore support
-- Comprehensive test suite and documentation
-
-### Future Plans
-
-- [ ] Support for custom license templates
-- [ ] Integration with popular CI/CD platforms
-- [ ] Web interface for license selection
-- [ ] Batch processing for large codebases
+This repository is maintained by **Rob "Coderrob" Lindley**. For inquiries, please contact via GitHub.
