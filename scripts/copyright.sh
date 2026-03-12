@@ -17,11 +17,15 @@
 set -euo pipefail
 
 # --- Configuration ---
-readonly SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly LICENSES_DIR="${GITHUB_ACTION_PATH:-${SCRIPT_DIR}/..}/licenses"
-readonly TMP_FILE="$(mktemp)"
-readonly CURRENT_YEAR="$(date +"%Y")"
+TMP_FILE="$(mktemp)"
+readonly TMP_FILE
+CURRENT_YEAR="$(date +"%Y")"
+readonly CURRENT_YEAR
 
 # File processing constants
 readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
