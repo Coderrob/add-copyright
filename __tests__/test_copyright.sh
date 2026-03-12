@@ -3,6 +3,9 @@
 
 set -euo pipefail
 
+# shellcheck source=__tests__/helpers.sh
+source "$(dirname "$0")/helpers.sh"
+
 # --- Test Setup ---
 SCRIPT_PATH="$(cd "$(dirname "$0")" && pwd)/../scripts/copyright.sh"
 TEST_DIR="$(mktemp -d)"
