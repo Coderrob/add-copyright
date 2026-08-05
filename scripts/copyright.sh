@@ -17,11 +17,15 @@
 set -euo pipefail
 
 # --- Configuration ---
-readonly SCRIPT_NAME="$(basename "$0")"
-readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly LICENSES_DIR="$SCRIPT_DIR/../licenses"
-readonly TMP_FILE="$(mktemp)"
-readonly CURRENT_YEAR="$(date +"%Y")"
+TMP_FILE="$(mktemp)"
+readonly TMP_FILE
+CURRENT_YEAR="$(date +"%Y")"
+readonly CURRENT_YEAR
 readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
 readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
 readonly REQUIRED_COMMANDS="git sed find mktemp jq grep zcat"
@@ -47,7 +51,9 @@ log_debug() { [[ "${DEBUG:-}" == "1" ]] && log "DEBUG" "$@"; }
 # --- Error Handling ---
 # cleanup: Removes temporary files created during script execution.
 cleanup() {
-  [[ -f "$TMP_FILE" ]] && rm "$TMP_FILE" 2>/dev/null || true
+  if [[ -f "$TMP_FILE" ]]; then
+    rm "$TMP_FILE" 2>/dev/null || true
+  fi
 }
 
 # on_error: Handles script errors by logging the exit code and cleaning up.
@@ -78,15 +84,20 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
-# verify_dependencies: Verifies that all required commands are installed.
-verify_dependencies() {
-  local missing=()
+# missing_dependencies: Prints each unavailable required command.
+missing_dependencies() {
   local cmd
   for cmd in $REQUIRED_COMMANDS; do
     if ! require_cmd "$cmd"; then
-      missing+=("$cmd")
+      printf '%s\n' "$cmd"
     fi
   done
+}
+
+# verify_dependencies: Verifies that all required commands are installed.
+verify_dependencies() {
+  local missing=()
+  mapfile -t missing < <(missing_dependencies)
 
   if [[ ${#missing[@]} -eq 0 ]]; then
     return 0
@@ -148,7 +159,7 @@ format_block_comment() {
 # Arguments: license_text, prefix
 format_line_comment() {
   local license_text="$1" prefix="$2"
-  printf '%s' "$license_text" | sed "s/^/$prefix/"
+  printf '%s' "$license_text" | sed "s|^|$prefix|"
 }
 
 # format_license_notice: Formats license text according to the comment style.
@@ -280,6 +291,7 @@ is_excluded_file() {
   filename="$(basename "$1")"
   local pattern
   for pattern in $EXCLUDED_FILES; do
+    # shellcheck disable=SC2053 # Patterns intentionally use shell globs.
     [[ "$filename" == $pattern ]] && return 0
   done
   return 1
@@ -312,23 +324,18 @@ should_ignore_file() {
   return 1
 }
 
-# build_find_prune_args: Builds arguments for find command to prune excluded directories.
-build_find_prune_args() {
-  local args=""
-  local dir
-  for dir in $EXCLUDED_DIRS; do
-    args="$args -name $dir -o"
-  done
-  printf '%s' "${args% -o}"
-}
-
 # find_files_to_process: Finds all files in a directory that should be processed.
 # Arguments: directory
 find_files_to_process() {
   local dir="$1"
-  local prune_args
-  prune_args="$(build_find_prune_args)"
-  find "$dir" -type d \( $prune_args \) -prune -o -type f -print0
+  local excluded_dir
+  local find_args=("$dir" -type d "(")
+  for excluded_dir in $EXCLUDED_DIRS; do
+    find_args+=(-name "$excluded_dir" -o)
+  done
+  unset 'find_args[${#find_args[@]}-1]'
+  find_args+=(")" -prune -o -type f -print0)
+  find "${find_args[@]}"
 }
 
 # --- File Updates ---
@@ -354,12 +361,12 @@ prepend_license_to_file() {
 
   local comment_style
   comment_style="$(get_comment_style "$file")"
-  [[ -n "$comment_style" ]] || { log_debug "No comment style for $file"; return 0; }
+  [[ -n "$comment_style" ]] || { log_debug "Skipping unsupported file: $file"; return 10; }
 
   local license_text
   license_text="$(get_license_text "$license" "$title")" || { log_error "Failed to get license text for $license"; return 1; }
 
-  has_current_copyright "$file" "$title" && { log_info "Skipping (already has license): $file"; return 0; }
+  has_current_copyright "$file" "$title" && { log_info "Skipping (already has license): $file"; return 10; }
 
   local formatted_notice
   formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
@@ -376,9 +383,16 @@ prepend_license_to_file() {
 # Returns: 0 (processed), 1 (skipped), 2 (error)
 process_file() {
   local file="$1" license="$2" title="$3"
+  local result
 
   should_ignore_file "$file" && { echo "1"; return 0; }
-  prepend_license_to_file "$file" "$license" "$title" && { echo "0"; return 0; }
+  if prepend_license_to_file "$file" "$license" "$title"; then
+    echo "0"
+    return 0
+  else
+    result=$?
+  fi
+  [[ $result -eq 10 ]] && { echo "1"; return 0; }
   echo "2"
 }
 
@@ -386,17 +400,16 @@ process_file() {
 # Arguments: directory, license_type, title
 scan_directory() {
   local dir="$1" license="$2" title="$3"
-  local processed=0 skipped=0 errors=0
+  local result
+  local counts=(0 0 0)
 
   while IFS= read -r -d '' file; do
     log_debug "Processing file: $file"
-    case "$(process_file "$file" "$license" "$title")" in
-      0) ((processed++)) ;;
-      1) ((skipped++)) ;;
-      2) ((errors++)) ;;
-    esac
+    result="$(process_file "$file" "$license" "$title")"
+    counts[result]=$((counts[result] + 1))
   done < <(find_files_to_process "$dir") || true
 
+  local processed="${counts[0]}" skipped="${counts[1]}" errors="${counts[2]}"
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
 
   [[ $errors -gt 0 ]] && return 1 || return 0

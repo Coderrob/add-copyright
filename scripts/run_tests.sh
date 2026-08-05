@@ -4,11 +4,11 @@
 # Test Runner Script
 # ==================
 #
-# Runs all test scripts in the __tests__ directory.
+# Runs the BATS suite and shell quality checks.
 #
 # Usage: ./run_tests.sh
 #
-# Dependencies: bash
+# Dependencies: bash, bats, shellcheck
 #
 # Author: Robert Lindley
 # License: Apache-2.0
@@ -16,22 +16,21 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TEST_DIR="$ROOT_DIR/__tests__"
+readonly ROOT_DIR
+readonly TEST_DIR="$ROOT_DIR/scripts/tests"
 
-# main: Main execution that runs all test files.
-if [[ ! -d "$TEST_DIR" ]]; then
-  echo "Test directory not found: $TEST_DIR" >&2
-  exit 2
-fi
+# require_test_tools: Verifies that the BATS runner and ShellCheck are available.
+require_test_tools() {
+  command -v bats >/dev/null 2>&1
+  command -v shellcheck >/dev/null 2>&1
+}
 
-for test_file in "$TEST_DIR"/test_*.sh; do
-  if [[ ! -f "$test_file" ]]; then
-    echo "No test files found in $TEST_DIR" >&2
-    exit 3
-  fi
-  echo "Running $test_file"
-  bash "$test_file"
-  echo ""
-done
+# main: Runs static shell validation followed by the complete BATS suite.
+main() {
+  require_test_tools
+  "$ROOT_DIR/scripts/check_shell_quality.sh"
+  shellcheck "$ROOT_DIR"/scripts/*.sh "$ROOT_DIR"/scripts/tests/*.bash
+  bats "$TEST_DIR"
+}
 
-echo "All tests passed."
+main "$@"

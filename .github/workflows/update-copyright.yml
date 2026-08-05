@@ -6,13 +6,14 @@ on:
     branches:
       - main
     paths:
-      - src/**
+      - scripts/**
 
 concurrency:
   group: copyright-${{ github.ref }}-${{ github.job }}
   cancel-in-progress: true
 
-permissions: {}
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -22,29 +23,46 @@ jobs:
   update-copyright:
     name: Update Copyright
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     permissions:
       contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout Source
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           persist-credentials: false
 
       - name: Update Copyright
         id: update-copyright
-        uses: Coderrob/add-copyright@v1
-        with:
-          name: "Robert Lindley"
-          license: apache-2.0
-
-      - name: Commit and Push changes
-        id: commit-and-push-changes
         uses: ./
         with:
-          branch: copyright
-          create-branch: true
-          directory-path: ./src
+          name: "Robert Lindley"
+          license: Apache-2.0
+          working-directory: ./scripts
+
+      - name: Check for changes
+        id: changes
+        run: |
+          set -euo pipefail
+          if [[ -n $(git status --porcelain -- scripts) ]]; then
+            echo "detected=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "detected=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create copyright update pull request
+        id: create-pull-request
+        if: steps.changes.outputs.detected == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: Update copyright headers
+          title: "Update copyright headers"
+          body: "Applies current Apache-2.0 copyright headers to shell sources."
+          branch: automation/copyright-headers
+          delete-branch: true

@@ -20,7 +20,8 @@
 set -euo pipefail
 
 # --- Constants ---
-readonly SCRIPT_NAME="$(basename "$0")"
+SCRIPT_NAME="$(basename "$0")"
+readonly SCRIPT_NAME
 readonly SEMVER_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly SEMVER_TAG_GLOB='v[0-9].[0-9].[0-9]*'
 readonly GIT_REMOTE='origin'
@@ -133,15 +134,15 @@ create_tag() {
   local tag="$1"
   local message="$2"
   local force="${3:-}"
+  local force_args=()
+  [[ -n "$force" ]] && force_args+=("$force")
 
-  if [[ -n "$force" ]]; then
-    git tag "$tag" --annotate --message "$message" "$force"
-  else
-    git tag "$tag" --annotate --message "$message"
-  fi
+  git tag "$tag" --annotate --message "$message" "${force_args[@]}"
   log_info "Tagged: ${BOLD_GREEN}$tag${OFF}"
 }
 
+# update_major_tags: Creates or advances the floating major-version tag.
+# Arguments: is_major, new_tag, latest_tag
 update_major_tags() {
   local is_major="$1"
   local new_tag="$2"
@@ -198,6 +199,28 @@ create_release_branch() {
   git push --set-upstream "$GIT_REMOTE" "releases/$new_major"
 }
 
+# read_new_tag: Reads and validates a semantic release tag from standard input.
+read_new_tag() {
+  local new_tag
+  printf 'Enter a new release tag (vX.X.X format): ' >&2
+  read -r new_tag
+  validate_tag "$new_tag" && { printf '%s' "$new_tag"; return 0; }
+  log_error "Tag: ${BOLD_BLUE}$new_tag${OFF} is ${BOLD_RED}not valid${OFF} (must be in ${BOLD}vX.X.X${OFF} format)"
+  exit 1
+}
+
+# classify_release: Sets is_major and logs the release classification.
+# Arguments: latest_tag, new_tag
+classify_release() {
+  if is_major_release "$1" "$2"; then
+    log_info "This is a major release"
+    printf '%s' "true"
+    return 0
+  fi
+  log_info "This is not a major release"
+  printf '%s' "false"
+}
+
 # --- Main ---
 # main: Main function that orchestrates the release process.
 main() {
@@ -210,25 +233,13 @@ main() {
   latest_tag="$(get_latest_tag)"
   log_info "Latest release tag: ${BOLD_BLUE}$latest_tag${OFF}"
 
-  printf 'Enter a new release tag (vX.X.X format): '
-  read -r new_tag
-
-  if ! validate_tag "$new_tag"; then
-    log_error "Tag: ${BOLD_BLUE}$new_tag${OFF} is ${BOLD_RED}not valid${OFF} (must be in ${BOLD}vX.X.X${OFF} format)"
-    exit 1
-  fi
-
+  local new_tag
+  new_tag="$(read_new_tag)"
   confirm_package_version "$new_tag"
   create_tag "$new_tag" "$new_tag Release"
 
-  local is_major="false"
-  if is_major_release "$latest_tag" "$new_tag"; then
-    is_major="true"
-    log_info "This is a major release"
-  else
-    log_info "This is not a major release"
-  fi
-
+  local is_major
+  is_major="$(classify_release "$latest_tag" "$new_tag")"
   update_major_tags "$is_major" "$new_tag" "$latest_tag"
   push_tags "$is_major" "$new_tag" "$latest_tag"
   create_release_branch "$is_major" "$new_tag"

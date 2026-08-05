@@ -24,8 +24,7 @@ on:
   workflow_dispatch: # Allow manual trigger
 
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 defaults:
   run:
@@ -33,12 +32,18 @@ defaults:
 
 jobs:
   update-licenses:
+    name: Refresh SPDX license data
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout Repository
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -56,15 +61,15 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n $(git status --porcelain) ]]; then
-            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "changes=true" >> "$GITHUB_OUTPUT"
           else
-            echo "changes=false" >> $GITHUB_OUTPUT
+            echo "changes=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create Pull Request
         id: create-pull-request
         if: steps.check-changes.outputs.changes == 'true'
-        uses: peter-evans/create-pull-request@v5
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           committer: github-actions[bot] <github-actions[bot]@users.noreply.github.com>
@@ -75,7 +80,7 @@ jobs:
             This PR updates the license files from the latest SPDX license-list-data repository.
 
             Changes:
-            - Fetched latest licenses from https://github.com/spdx/license-list-data/tree/main/text
-            - Normalized copyright notices to use {{COPYRIGHT_NOTICE}} placeholder
-          branch: update-licenses
+            - Fetched current SPDX JSON details
+            - Compressed license records for the action runtime
+          branch: automation/update-licenses
           delete-branch: true

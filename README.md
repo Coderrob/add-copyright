@@ -1,314 +1,206 @@
 <p align="center">
-  <img
-    src="public/img/add-copyright-logo-small.png"
-    alt="Barrel Roll logo"
-  />
+  <img src="public/img/add-copyright-logo-small.png" alt="add-copyright logo" width="180">
 </p>
 
 # Copyright and License
 
-[![GitHub Actions](https://img.shields.io/badge/GitHub%20Actions-2088FF?style=for-the-badge&logo=github-actions&logoColor=white)](https://github.com/features/actions)
+Add consistent, language-aware copyright and SPDX license notices to a repository with one GitHub Actions step.
 
-[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen.svg)](https://github.com/Coderrob/add-copyright)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![SPDX](https://img.shields.io/badge/SPDX--License--List-3.20-blue.svg)](https://spdx.org/licenses/)
+`Coderrob/add-copyright` is a composite GitHub Action backed by a portable Bash CLI. It processes supported source files in place, preserves their original content, respects Git exclusions, and avoids duplicating a current notice. The bundled compressed SPDX database supports more than 700 license identifiers without making network requests during an action run.
 
-A GitHub Action that automatically adds copyright headers and full license texts to source files based on SPDX license identifiers. Supports 700+ current open-source licenses with automatic monthly updates from the official SPDX License List Data repository. Ensures compliance and consistency across your codebase.
+## Why use it?
 
-## ✨ Features
+- **Repository-local updates:** files are updated directly in the caller's checked-out workspace.
+- **Language-aware comments:** block and line comment styles are selected from each file extension.
+- **SPDX-backed notices:** license headers and texts come from the bundled SPDX dataset.
+- **Repeatable execution:** a second run with the same year and holder leaves files unchanged.
+- **Scoped operation:** select a project root or a specific working directory.
+- **Git-aware discovery:** ignored files and common generated directories are skipped.
+- **Observable results:** each run logs updated and skipped files plus an aggregate summary.
 
-- **700+ Licenses**: Support for all current SPDX license identifiers
-- **Multi-Language**: Handles 15+ programming languages with appropriate comment styles
-- **Smart Detection**: Skips files that already have current copyright notices
-- **Git Integration**: Respects `.gitignore` and common config file exclusions
-- **Auto-Updates**: Monthly license database updates from SPDX
-- **Flexible**: Works with any directory structure and file types
-
-## 📋 Table of Contents
-
-- [Quick Start](#-quick-start)
-- [Inputs](#-inputs)
-- [Outputs](#-outputs)
-- [Supported Languages](#-supported-languages)
-- [Examples](#-examples)
-- [License Updates](#-license-updates)
-- [Local Development](#-local-development)
-- [Contributing](#-contributing)
-- [Troubleshooting](#-troubleshooting)
-- [License](#-license)
-- [Changelog](CHANGELOG.md)
-
-## 🚀 Quick Start
+## Quick start
 
 ```yaml
+name: Apply copyright headers
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  add-copyright:
+  copyright:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Add Copyright Headers
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Apply MIT notices
         uses: Coderrob/add-copyright@v1
         with:
-          name: "Your Company Name"
-          license: "MIT"
-          working-directory: "src"
+          name: "Acme Corporation"
+          license: MIT
+          working-directory: ./src
 ```
 
-## 📝 Inputs
+The action changes the runner workspace; it does not commit or push. Review the diff in a later step, upload it as an artifact, or use a dedicated pull-request action according to your repository policy.
 
-| Name                | Description                                                                   | Required | Default | Example        |
-| ------------------- | ----------------------------------------------------------------------------- | -------- | ------- | -------------- |
-| `name`              | Name of the copyright holder                                                  | ✅ Yes   | -       | `"Acme Corp"`  |
-| `license`           | SPDX license identifier (see [SPDX License List](https://spdx.org/licenses/)) | ✅ Yes   | -       | `"Apache-2.0"` |
-| `working-directory` | Directory to scan for source files                                            | ❌ No    | `.`     | `"src"`        |
+## Inputs
 
-## 📤 Outputs
+| Input | Required | Default | Description |
+| --- | --- | --- | --- |
+| `name` | Yes | — | Copyright holder written into the license notice. |
+| `license` | Yes | — | SPDX license identifier such as `MIT`, `Apache-2.0`, or `BSD-3-Clause`. |
+| `working-directory` | No | `.` | Directory to scan, relative to the checked-out repository. |
 
-This action does not define any outputs.
+The action currently defines no outputs. File changes and structured log messages are its observable result.
 
-## 💻 Supported Languages
+## Behavior
 
-The action automatically detects file types and applies appropriate comment styles:
+For every supported source file, the action:
 
-| Language   | Extensions                 | Comment Style |
-| ---------- | -------------------------- | ------------- |
-| Shell/Bash | `.sh`, `.bash`             | `#`           |
-| Python     | `.py`                      | `#`           |
-| JavaScript | `.js`                      | `/* */`       |
-| TypeScript | `.ts`                      | `/* */`       |
-| Java       | `.java`                    | `/* */`       |
-| C/C++      | `.c`, `.cpp`, `.h`, `.hpp` | `/* */`       |
-| C#         | `.cs`                      | `/* */`       |
-| Go         | `.go`                      | `//`          |
-| Swift      | `.swift`                   | `//`          |
-| PHP        | `.php`                     | `/* */`       |
-| Ruby       | `.rb`                      | `#`           |
-| YAML       | `.yml`, `.yaml`            | `#`           |
+1. Excludes generated, editor, dependency, Git metadata, and ignored paths.
+2. Resolves a bundled SPDX license record.
+3. Replaces standard year, owner, and copyright placeholders.
+4. Formats the notice using the file type's comment style.
+5. Skips the file when the current year and holder are already present.
+6. Prepends the notice while preserving the original source content.
 
-## 📚 Examples
+An invalid directory, unavailable license, missing dependency, or failed file update returns a nonzero exit status. Logs identify the failing operation and the final processed/skipped/error counts.
 
-### Basic Usage
+## Supported source types
 
-```yaml
-- name: Add MIT License Headers
-  uses: Coderrob/add-copyright@v1
-  with:
-    name: "John Doe"
-    license: "MIT"
-```
+| Comment style | Extensions |
+| --- | --- |
+| `#` | `.sh`, `.bash`, `.py`, `.rb`, `.yml`, `.yaml` |
+| `//` | `.go`, `.swift` |
+| `/* ... */` | `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.cs`, `.php`, `.json` |
 
-### Company-wide License Application
+Unsupported extensions are skipped without modifying their content.
+
+## Common patterns
+
+### Apply Apache-2.0 notices to the whole repository
 
 ```yaml
-- name: Add Apache 2.0 License to All Source Files
-  uses: Coderrob/add-copyright@v1
+- uses: Coderrob/add-copyright@v1
   with:
     name: "Acme Corporation"
-    license: "Apache-2.0"
-    working-directory: "."
+    license: Apache-2.0
 ```
 
-### Multiple Directories
+### Process separate application areas
 
 ```yaml
-- name: Add License to Frontend Code
-  uses: Coderrob/add-copyright@v1
+- uses: Coderrob/add-copyright@v1
   with:
-    name: "My Project"
-    license: "GPL-3.0-only"
-    working-directory: "frontend"
+    name: "Acme Corporation"
+    license: MIT
+    working-directory: ./frontend
 
-- name: Add License to Backend Code
-  uses: Coderrob/add-copyright@v1
+- uses: Coderrob/add-copyright@v1
   with:
-    name: "My Project"
-    license: "GPL-3.0-only"
-    working-directory: "backend"
+    name: "Acme Corporation"
+    license: MIT
+    working-directory: ./backend
 ```
 
-### Using with Matrix Strategy
+### Open automated update pull requests
 
-```yaml
-jobs:
-  license:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - dir: "src"
-            license: "MIT"
-          - dir: "tests"
-            license: "MIT"
-    steps:
-      - uses: actions/checkout@v4
-      - name: Add Copyright
-        uses: Coderrob/add-copyright@v1
-        with:
-          name: "My Organization"
-          license: ${{ matrix.license }}
-          working-directory: ${{ matrix.dir }}
-```
+Keep write permissions in the automation workflow—not in this action—and configure the checkout step without persisted credentials. This repository's maintenance workflows demonstrate that separation: the local action changes files, a change-detection step verifies the diff, and `peter-evans/create-pull-request@v8` publishes a narrowly scoped branch.
 
-## 🔄 License Updates
+## Local CLI
 
-This action automatically keeps its license database up-to-date by fetching the latest license texts from the [SPDX License List Data](https://github.com/spdx/license-list-data) repository. The update process runs monthly via a scheduled GitHub workflow.
-
-### Manual License Update
-
-To manually trigger a license update:
-
-1. Go to the Actions tab in your repository
-2. Select "Update Licenses" workflow
-3. Click "Run workflow"
-
-Or execute the update script locally:
+The same implementation can be run without GitHub Actions:
 
 ```bash
-./scripts/update_licenses.sh
+./scripts/copyright.sh ./src MIT "Acme Corporation"
 ```
 
-## 🛠️ Local Development
+Required tools are Bash, Git, `find`, `grep`, `jq`, `sed`, `gzip`, and standard Unix file utilities.
 
-### Prerequisites
-
-- Bash shell
-- Git
-- jq (JSON processor)
-- Standard Unix tools (sed, awk, find)
-
-### Running Locally
+Set `DEBUG=1` to include file-discovery and formatting diagnostics:
 
 ```bash
-# Clone the repository
-git clone https://github.com/Coderrob/add-copyright.git
-cd add-copyright
-
-# Update license database
-./scripts/update_licenses.sh
-
-# Add copyright to files
-./scripts/copyright.sh /path/to/your/project MIT "Your Name"
+DEBUG=1 ./scripts/copyright.sh ./src Apache-2.0 "Acme Corporation"
 ```
 
-### Available Scripts
+## Development and validation
 
-This project includes several utility scripts:
-
-#### `scripts/copyright.sh`
-
-The main script that adds copyright headers to source files.
+The canonical validation path uses the pinned official Dev Container CLI:
 
 ```bash
-./scripts/copyright.sh <directory> <license-type> <copyright-title>
+./scripts/validate_devcontainer.sh
 ```
 
-**Arguments:**
+It performs the following operations transparently:
 
-- `directory`: Directory to scan for source files
-- `license-type`: SPDX license identifier (e.g., MIT, Apache-2.0)
-- `copyright-title`: Name of the copyright holder
+1. Builds `.devcontainer/devcontainer.json`, including locked features.
+2. Recreates the workspace container so stale dependencies cannot influence results.
+3. Runs ShellCheck and the shell quality policy.
+4. Runs the complete BATS suite.
+5. Runs the local `action-integration` job through `act`.
 
-#### `scripts/update_licenses.sh`
-
-Updates the local license database from the SPDX License List Data repository.
+The devcontainer requires Docker, Node.js, `npx`, and Bash on the host. A Make wrapper is also available:
 
 ```bash
-./scripts/update_licenses.sh
+make validate-devcontainer
 ```
 
-#### `scripts/release.sh`
-
-Manages the release process, including creating semantic version tags and release branches.
+For focused work inside an already-running devcontainer:
 
 ```bash
-./scripts/release.sh
+./scripts/run_tests.sh       # ShellCheck, quality policy, and BATS
+./scripts/run_act_test.sh    # GitHub Action integration through act
+bats scripts/tests/copyright.bats
 ```
 
-### Testing
+## Shell engineering policy
+
+All shell implementation and tests live under `scripts/`. The automated quality gate requires every Bash function to:
+
+- have adjacent function-level documentation;
+- remain at or below 25 physical lines;
+- have cyclomatic complexity below 4;
+- pass ShellCheck.
+
+Functions favor local state, readonly configuration, explicit return codes, small orchestration boundaries, and log messages at externally meaningful transitions. BATS covers successful updates, idempotency, exclusions, invalid inputs, line and block comments, release behavior, workflow configuration, and compressed SPDX updates.
+
+## License database maintenance
+
+The monthly `Update Licenses` workflow runs `scripts/update_licenses.sh` and opens a pull request when SPDX data changes. Runtime records are stored as `licenses/<identifier>.json.gz` to keep the action checkout compact.
+
+To test the updater without changing this checkout, use the BATS fixture:
 
 ```bash
-# Run the test suite
-./scripts/run_tests.sh
-
-# Test specific functionality
-./__tests__/test_copyright.sh
+bats scripts/tests/update_licenses.bats
 ```
 
-## 🤝 Contributing
+## Troubleshooting
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+### The working directory is rejected
 
-### Development Setup
+Confirm the checkout step ran first and that `working-directory` is relative to the repository root created by checkout.
 
-1. Fork the repository
-2. Clone your fork: `git clone https://github.com/your-username/add-copyright.git`
-3. Make your changes
-4. Run tests: `./scripts/run_tests.sh`
-5. Submit a pull request
+### A license cannot be found
 
-### Adding Support for New Languages
+Use the canonical SPDX identifier and preserve its punctuation, for example `Apache-2.0` or `GPL-3.0-only`.
 
-To add support for a new programming language:
+### A file was skipped
 
-1. Add the file extension and comment style to `COMMENT_STYLES` array in `scripts/copyright.sh`
-2. Test with sample files
-3. Update this README with the new language
+Check its extension, `.gitignore`, excluded directory, and whether a notice for the current year and holder already exists. Re-run locally with `DEBUG=1` for discovery details.
 
-## 🔧 Troubleshooting
+### `act` cannot reach Docker
 
-### Common Issues
+Run validation through the devcontainer. Its Docker-outside-of-Docker feature forwards the daemon socket and configures access for the `vscode` user.
 
-#### "jq command not found"
+## Security model
 
-```bash
-# Install jq
-# macOS
-brew install jq
-# Ubuntu/Debian
-sudo apt-get install jq
-# CentOS/RHEL
-sudo yum install jq
-```
-
-#### "License file not found"
-
-- Ensure the license identifier is a valid SPDX identifier
-- Check the [SPDX License List](https://spdx.org/licenses/) for valid identifiers
-- The license database is updated monthly; try running the update script
-
-#### "Permission denied"
-
-```bash
-# Make scripts executable
-chmod +x scripts/*.sh
-```
-
-#### "Files not being processed"
-
-- Check if files are in `.gitignore`
-- Verify file extensions are supported
-- Ensure files don't already contain current copyright notices
-
-### Debug Mode
-
-Enable debug logging by setting the `DEBUG` environment variable:
-
-```bash
-DEBUG=1 ./scripts/copyright.sh /path/to/project MIT "Your Name"
-```
-
-## 🙏 Acknowledgments
-
-- [SPDX License List Data](https://github.com/spdx/license-list-data) for license information
-- [GitHub Actions](https://github.com/features/actions) for the CI/CD platform
-- Community contributors for their valuable input
-
----
+The action itself requires no token and performs no network or Git write operations. Callers control checkout credentials, workflow permissions, commits, pushes, and pull requests. Use least-privilege permissions and keep write access limited to the job that publishes reviewed changes.
 
 ## License
 
-This project is licensed under the Apache 2.0 License - see the [LICENSE](LICENSE) file for details.
-
-## Ownership
-
-This repository is maintained by **Rob "Coderrob" Lindley**. For inquiries, please contact via GitHub.
+This project is distributed under the [Apache License 2.0](LICENSE).

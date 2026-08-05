@@ -1,7 +1,7 @@
 author: Robert Lindley
-name: Copyright and License
+name: Add Copyright and License
 description: |
-  Adds copyright headers and license texts to source files using SPDX, supporting 750+ licenses.
+  Adds copyright headers and license notices to source files using 700+ SPDX license identifiers.
 
 branding:
   color: yellow
@@ -24,13 +24,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Checkout Repository
-      id: checkout-repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 1
-        persist-credentials: false
-
     - name: Ensure Script Permission
       id: ensure-executable
       shell: bash
