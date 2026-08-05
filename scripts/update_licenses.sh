@@ -19,25 +19,20 @@ set -euo pipefail
 # --- Constants ---
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly SPDX_REPO="${SPDX_REPO:-https://github.com/spdx/license-list-data.git}"
 readonly SPDX_JSON_DIR="json/details"
 readonly LOCAL_LICENSES_DIR="licenses"
-TMP_DIR="$(mktemp -d)"
+readonly MIN_LICENSE_COUNT="${MIN_LICENSE_COUNT:-700}"
+TMP_DIR="$(mktemp -d "$(pwd)/.license-update.XXXXXX")"
 readonly TMP_DIR
 readonly SPDX_CLONE_DIR="$TMP_DIR/spdx-license-list-data"
+readonly STAGED_LICENSES_DIR="$TMP_DIR/licenses"
+readonly BACKUP_LICENSES_DIR="$TMP_DIR/licenses.backup"
 
-# --- Logging ---
-# log: Logs a message with timestamp, script name, and log level.
-log() {
-  local level="$1"; shift
-  printf '%s [%s] %s: %s\n' "$(date +'%Y-%m-%dT%H:%M:%S%z')" "$SCRIPT_NAME" "$level" "$*" >&2
-}
-# log_info: Logs an informational message.
-log_info() { log "INFO" "$@"; }
-# log_warn: Logs a warning message.
-log_warn() { log "WARN" "$@"; }
-# log_error: Logs an error message.
-log_error() { log "ERROR" "$@"; }
+# shellcheck source=scripts/lib/logging.bash
+source "$SCRIPT_DIR/lib/logging.bash"
 
 # --- Error Handling ---
 # cleanup: Removes temporary directories created during execution.
@@ -103,26 +98,41 @@ ensure_spdx_json_dir() {
   printf '%s' "$dir"
 }
 
-# reset_local_license_dir: Removes and recreates the local licenses directory.
-reset_local_license_dir() {
-  rm -rf "$LOCAL_LICENSES_DIR"
-  mkdir -p "$LOCAL_LICENSES_DIR"
-}
-
 # sync_license_files: Compresses SPDX JSON details into the runtime database.
-# Arguments: source_directory
+# Arguments: source_directory, destination_directory
 sync_license_files() {
-  local src_dir="$1"
+  local src_dir="$1" destination="$2"
   local source_file
+  mkdir -p "$destination"
   while IFS= read -r -d '' source_file; do
-    gzip -c "$source_file" > "$LOCAL_LICENSES_DIR/$(basename "$source_file").gz"
+    gzip -c "$source_file" > "$destination/$(basename "$source_file").gz"
   done < <(find "$src_dir" -name "*.json" -print0)
-  log_info "Compressed $(count_local_licenses) license detail files"
+  log_info "Compressed $(count_licenses "$destination") license detail files"
 }
 
-# count_local_licenses: Counts compressed license records in the local database.
-count_local_licenses() {
-  find "$LOCAL_LICENSES_DIR" -name "*.json.gz" | wc -l
+# count_licenses: Counts compressed license records in a database directory.
+# Arguments: license_directory
+count_licenses() {
+  find "$1" -name "*.json.gz" | wc -l
+}
+
+# validate_staged_database: Rejects incomplete or unreadable staged databases.
+validate_staged_database() {
+  local count
+  count="$(count_licenses "$STAGED_LICENSES_DIR")"
+  [[ "$count" -ge "$MIN_LICENSE_COUNT" ]] || { log_error "Expected at least $MIN_LICENSE_COUNT licenses; found $count"; return 1; }
+  find "$STAGED_LICENSES_DIR" -name '*.json.gz' -print0 \
+    | while IFS= read -r -d '' record; do gzip -t "$record"; done
+}
+
+# install_staged_database: Replaces the live database and rolls back on failure.
+install_staged_database() {
+  [[ -d "$LOCAL_LICENSES_DIR" ]] && mv "$LOCAL_LICENSES_DIR" "$BACKUP_LICENSES_DIR"
+  if mv "$STAGED_LICENSES_DIR" "$LOCAL_LICENSES_DIR"; then
+    return 0
+  fi
+  [[ -d "$BACKUP_LICENSES_DIR" ]] && mv "$BACKUP_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
+  return 1
 }
 
 # --- Root LICENSE ---
@@ -179,11 +189,12 @@ main() {
   local spdx_dir
   spdx_dir="$(ensure_spdx_json_dir)"
 
-  reset_local_license_dir
-  sync_license_files "$spdx_dir"
+  sync_license_files "$spdx_dir" "$STAGED_LICENSES_DIR"
+  validate_staged_database
+  install_staged_database
   create_root_license_if_missing
 
-  log_info "License update complete. $(count_local_licenses) license json detail files synced."
+  log_info "License update complete. $(count_licenses "$LOCAL_LICENSES_DIR") license json detail files synced."
   log_info "Updated licenses:"
   list_updated_licenses
 }

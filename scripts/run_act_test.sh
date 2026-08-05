@@ -41,23 +41,16 @@ assert_updated_file() {
   fi
 }
 
-# assert_output_content: Asserts that the output contains expected copyright and license information.
-assert_output_content() {
+# assert_structured_outputs: Asserts first-run and idempotent action result counts.
+assert_structured_outputs() {
   local output_file="$1"
-  local year
-  year=$(date +%Y)
-  local expected_copyright_line="Copyright (c) $year Test Runner"
-  local expected_license_token="MIT"
-
-  if grep -F "$expected_copyright_line" "$output_file" >/dev/null 2>&1 \
-    && grep -F "$expected_license_token" "$output_file" >/dev/null 2>&1; then
-    echo "PASS: file contains expected copyright line and SPDX token"
+  if grep -F '::set-output:: updated-count=2' "$output_file" >/dev/null 2>&1 \
+    && grep -F '::set-output:: skipped-count=2' "$output_file" >/dev/null 2>&1; then
+    echo "PASS: action published first-run and idempotent result counts"
     return 0
   fi
 
-  echo "FAIL: file content does not contain expected copyright or SPDX token" >&2
-  echo "Expected copyright line: $expected_copyright_line"
-  echo "Expected license token: $expected_license_token"
+  echo "FAIL: action did not publish expected structured outputs" >&2
   echo "---- act output (tail) ----"
   tail -n 200 "$output_file"
   exit 5
@@ -75,7 +68,7 @@ main() {
 
   echo "Act finished, running assertions..."
   assert_updated_file "$output_file"
-  assert_output_content "$output_file"
+  assert_structured_outputs "$output_file"
 }
 
 main "$@"

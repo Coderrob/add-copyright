@@ -56,7 +56,7 @@ The action changes the runner workspace; it does not commit or push. Review the 
 | `license` | Yes | — | SPDX license identifier such as `MIT`, `Apache-2.0`, or `BSD-3-Clause`. |
 | `working-directory` | No | `.` | Directory to scan, relative to the checked-out repository. |
 
-The action currently defines no outputs. File changes and structured log messages are its observable result.
+The action publishes `updated-count`, `skipped-count`, `error-count`, and `changed` outputs, so calling workflows can make decisions without parsing logs. Files are still updated directly in the caller's workspace.
 
 ## Behavior
 
@@ -80,6 +80,8 @@ An invalid directory, unavailable license, missing dependency, or failed file up
 | `/* ... */` | `.js`, `.ts`, `.java`, `.c`, `.cpp`, `.h`, `.hpp`, `.cs`, `.php`, `.json` |
 
 Unsupported extensions are skipped without modifying their content.
+
+The machine-readable source for this table is [`scripts/config/comment-styles.tsv`](scripts/config/comment-styles.tsv); runtime behavior and tests consume that same manifest.
 
 ## Common patterns
 
@@ -171,7 +173,18 @@ Functions favor local state, readonly configuration, explicit return codes, smal
 
 ## License database maintenance
 
-The monthly `Update Licenses` workflow runs `scripts/update_licenses.sh` and opens a pull request when SPDX data changes. Runtime records are stored as `licenses/<identifier>.json.gz` to keep the action checkout compact.
+The monthly `Update Licenses` workflow runs `scripts/update_licenses.sh` and opens a pull request when SPDX data changes. Runtime records are stored as `licenses/<identifier>.json.gz` to keep the action checkout compact. Updates are compressed and validated in a staging directory before the live database is replaced; validation failure preserves the existing database.
+
+## Release automation
+
+Releases are noninteractive and require an explicit semantic tag:
+
+```bash
+./scripts/release.sh v2.1.0
+./scripts/release.sh --dry-run v2.1.0
+```
+
+Dry-run mode reports every tag, push, and release-branch mutation without changing the repository or remote.
 
 To test the updater without changing this checkout, use the BATS fixture:
 

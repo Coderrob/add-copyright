@@ -5,9 +5,11 @@ setup() {
   WORKFLOW_DIR="$BATS_TEST_DIRNAME/../../.github/workflows"
 }
 
-@test "workflows use Node 24 action generations" {
-  run grep -RE 'actions/checkout@v[1-5]|create-pull-request@v[1-7]' "$WORKFLOW_DIR"
+@test "workflows pin Node 24 actions to immutable commits" {
+  run grep -RE 'uses: (actions/checkout|peter-evans/create-pull-request)@v' "$WORKFLOW_DIR"
   [ "$status" -eq 1 ]
+  run grep -RE 'uses: (actions/checkout|peter-evans/create-pull-request)@[0-9a-f]{40} # v(6|8)' "$WORKFLOW_DIR"
+  [ "$status" -eq 0 ]
 }
 
 @test "copyright automation invokes local action with supported inputs" {
@@ -18,7 +20,7 @@ setup() {
 }
 
 @test "automation workflows create pull requests instead of direct pushes" {
-  run grep -F "uses: peter-evans/create-pull-request@v8" \
+  run grep -F "uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8" \
     "$WORKFLOW_DIR/update-copyright.yml" "$WORKFLOW_DIR/update-licenses.yml"
   [ "$status" -eq 0 ]
   run grep -RE 'git push' "$WORKFLOW_DIR"

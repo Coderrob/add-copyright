@@ -29,7 +29,8 @@ require_test_tools() {
 main() {
   require_test_tools
   "$ROOT_DIR/scripts/check_shell_quality.sh"
-  shellcheck "$ROOT_DIR"/scripts/*.sh "$ROOT_DIR"/scripts/tests/*.bash
+  shellcheck "$ROOT_DIR"/scripts/*.sh "$ROOT_DIR"/scripts/lib/*.bash \
+    "$ROOT_DIR"/scripts/tests/*.bash "$ROOT_DIR"/scripts/tests/*.sh
   bats "$TEST_DIR"
 }
 

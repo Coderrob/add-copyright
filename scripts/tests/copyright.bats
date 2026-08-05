@@ -113,3 +113,21 @@ export const value = 1;"
     "$COPYRIGHT_SCRIPT" "$TEST_WORKSPACE" MIT "Remote Runner"
   [ "$status" -ne 0 ]
 }
+
+@test "publishes structured action outputs" {
+  create_source "example.py" "print('outputs')"
+  local output_file="$BATS_TEST_TMPDIR/github-output"
+  run env GITHUB_OUTPUT="$output_file" "$COPYRIGHT_SCRIPT" \
+    "$TEST_WORKSPACE" MIT "Output Runner"
+  [ "$status" -eq 0 ]
+  grep -qx 'updated-count=1' "$output_file"
+  grep -qx 'skipped-count=0' "$output_file"
+  grep -qx 'error-count=0' "$output_file"
+  grep -qx 'changed=true' "$output_file"
+}
+
+@test "comment-style manifest is unique and loadable" {
+  local manifest="$PROJECT_ROOT/scripts/config/comment-styles.tsv"
+  [ "$(awk -F '\t' '!/^#/ { print $1 }' "$manifest" | sort | uniq -d | wc -l)" -eq 0 ]
+  [ "$(awk -F '\t' '!/^#/ && NF == 2 { count++ } END { print count }' "$manifest")" -ge 18 ]
+}

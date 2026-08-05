@@ -22,7 +22,7 @@ jobs:
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -48,7 +48,7 @@ jobs:
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -71,21 +71,14 @@ jobs:
 
       - name: Validate calling repository updates
         id: validate-updates
+        env:
+          UPDATED_COUNT: ${{ steps.run-action.outputs.updated-count }}
+          ERROR_COUNT: ${{ steps.run-action.outputs.error-count }}
         run: |
           set -euo pipefail
-          year=$(date +%Y)
-          grep -F "Copyright (c) $year Test Runner" src/example.js
-          grep -F "Copyright (c) $year Test Runner" src/example.py
-          grep -F "Permission is hereby granted, free of charge" src/example.js
-          grep -F "Permission is hereby granted, free of charge" src/example.py
-          grep -F "// sample" src/example.js
-          grep -F 'print("sample")' src/example.py
-          if [[ -z $(git status --porcelain -- src/example.js src/example.py) ]]; then
-            echo "Expected the action to modify the calling repository" >&2
-            exit 1
-          fi
-          cp src/example.js /tmp/example.js.once
-          cp src/example.py /tmp/example.py.once
+          [[ "$UPDATED_COUNT" == "2" ]]
+          [[ "$ERROR_COUNT" == "0" ]]
+          scripts/tests/validate_action_fixture.sh capture src "$RUNNER_TEMP/action-fixture"
 
       - name: Run action a second time
         id: run-action-again
@@ -97,7 +90,11 @@ jobs:
 
       - name: Validate idempotency
         id: validate-idempotency
+        env:
+          UPDATED_COUNT: ${{ steps.run-action-again.outputs.updated-count }}
+          SKIPPED_COUNT: ${{ steps.run-action-again.outputs.skipped-count }}
         run: |
           set -euo pipefail
-          cmp /tmp/example.js.once src/example.js
-          cmp /tmp/example.py.once src/example.py
+          [[ "$UPDATED_COUNT" == "0" ]]
+          [[ "$SKIPPED_COUNT" == "2" ]]
+          scripts/tests/validate_action_fixture.sh verify src "$RUNNER_TEMP/action-fixture"

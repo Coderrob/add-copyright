@@ -21,6 +21,20 @@ inputs:
     description: "Directory to scan for source files"
     required: false
 
+outputs:
+  updated-count:
+    description: "Number of files updated"
+    value: ${{ steps.execute-update.outputs.updated-count }}
+  skipped-count:
+    description: "Number of files skipped"
+    value: ${{ steps.execute-update.outputs.skipped-count }}
+  error-count:
+    description: "Number of files that could not be updated"
+    value: ${{ steps.execute-update.outputs.error-count }}
+  changed:
+    description: "Whether at least one file was updated"
+    value: ${{ steps.execute-update.outputs.changed }}
+
 runs:
   using: "composite"
   steps:
