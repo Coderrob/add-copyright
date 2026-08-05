@@ -32,7 +32,7 @@ readonly RESULT_SKIPPED=1
 readonly RESULT_ERROR=2
 readonly -a EXCLUDED_DIRS=(.git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses)
 readonly -a EXCLUDED_FILES=(.eslintrc\* eslint.config.\* .DS_Store Thumbs.db)
-readonly -a REQUIRED_COMMANDS=(git sed find mktemp jq grep zcat)
+readonly -a REQUIRED_COMMANDS=(git sed find mktemp jq grep zcat head tail chmod mv)
 
 # shellcheck source=scripts/lib/logging.bash
 source "$SCRIPT_DIR/lib/logging.bash"
@@ -128,7 +128,7 @@ format_block_comment() {
 # Arguments: license_text, prefix
 format_line_comment() {
   local license_text="$1" prefix="$2"
-  printf '%s' "$license_text" | sed "s|^|$prefix|"
+  printf '%s' "$license_text" | sed "s|^|$prefix |"
 }
 
 # format_license_notice: Formats license text according to the comment style.
@@ -308,20 +308,37 @@ find_files_to_process() {
 }
 
 # --- File Updates ---
-# has_current_copyright: Checks if a file already has the current year's copyright notice.
-# Arguments: file_path, title
-has_current_copyright() {
-  local file="$1" title="$2"
-  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
+# has_current_notice: Checks for the requested current copyright and license.
+# Arguments: file_path, license_type, title
+has_current_notice() {
+  local file="$1" license="$2" title="$3"
+  grep -Fiq "SPDX-License-Identifier: $license" "$file" || return 1
+  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" \
+    || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
+}
+
+# preamble_line_count: Counts interpreter and Python encoding preamble lines.
+# Arguments: file_path
+preamble_line_count() {
+  local file="$1" first second count=0
+  IFS= read -r first < "$file" || true
+  second="$(sed -n '2p' "$file")"
+  [[ "$first" == '#!'* ]] && count=1
+  if [[ "$(get_file_extension "$file")" == "py" ]]; then
+    [[ "$first" =~ coding[:=] ]] && count=1
+    [[ $count -eq 1 && "$second" =~ coding[:=] ]] && count=2
+  fi
+  printf '%s' "$count"
 }
 
 # write_updated_file: Atomically replaces one file with its licensed content.
 # Arguments: license_notice, file_path
 write_updated_file() {
-  local notice="$1" file="$2" temp_file
+  local notice="$1" file="$2" temp_file preamble_lines
   temp_file="$(mktemp "${file}.add-copyright.XXXXXX")"
+  preamble_lines="$(preamble_line_count "$file")"
 
-  if { printf '%s\n\n' "$notice"; cat "$file"; } > "$temp_file"; then
+  if write_licensed_content "$notice" "$file" "$preamble_lines" > "$temp_file"; then
     chmod --reference="$file" "$temp_file"
     mv "$temp_file" "$file"
     return 0
@@ -329,6 +346,32 @@ write_updated_file() {
 
   rm -f "$temp_file"
   return 1
+}
+
+# write_licensed_content: Writes preserved preamble, notice, and source body.
+# Arguments: license_notice, file_path, preamble_line_count
+write_licensed_content() {
+  local notice="$1" file="$2" preamble_lines="$3"
+  [[ "$preamble_lines" -gt 0 ]] && head -n "$preamble_lines" "$file"
+  printf '%s\n\n' "$notice"
+  write_source_body "$file" "$preamble_lines"
+}
+
+# write_source_body: Writes source content without a prior managed SPDX notice.
+# Arguments: file_path, preamble_line_count
+write_source_body() {
+  awk -v start="$(( $2 + 1 ))" '
+    NR < start { next }
+    NR == start && /^(#|\/\/) SPDX-License-Identifier:/ { mode="line"; next }
+    NR == start && $0 == "/*" { opening=$0; mode="block-check"; next }
+    mode == "block-check" && /SPDX-License-Identifier:/ { mode="block"; next }
+    mode == "block-check" { print opening; mode=""; print; next }
+    mode == "line" && /^(#|\/\/) / { next }
+    mode == "block" && /^ \*\/$/ { mode="after"; next }
+    mode == "block" { next }
+    mode == "after" && /^$/ { mode=""; next }
+    { mode=""; print }
+  ' "$1"
 }
 
 # prepend_license_to_file: Prepends license notice to a file if it doesn't already have it.
@@ -343,9 +386,10 @@ prepend_license_to_file() {
   local license_text
   license_text="$(get_license_text "$license" "$title")" || { log_error "Failed to get license text for $license"; return "$RESULT_ERROR"; }
 
-  has_current_copyright "$file" "$title" && { log_info "Skipping (already has license): $file"; return "$RESULT_SKIPPED"; }
+  has_current_notice "$file" "$license" "$title" && { log_info "Skipping (already has license): $file"; return "$RESULT_SKIPPED"; }
 
   local formatted_notice
+  license_text="SPDX-License-Identifier: $license"$'\n'"$license_text"
   formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
   log_debug "Formatted notice: $formatted_notice"
 
@@ -377,14 +421,21 @@ process_file() {
 # Arguments: directory, license_type, title
 scan_directory() {
   local dir="$1" license="$2" title="$3"
-  local result
+  local result file_list
   local counts=(0 0 0)
 
-  while IFS= read -r -d '' file; do
-    log_debug "Processing file: $file"
-    result="$(process_file "$file" "$license" "$title")"
-    counts[result]=$((counts[result] + 1))
-  done < <(find_files_to_process "$dir") || true
+  file_list="$(mktemp)"
+  if find_files_to_process "$dir" > "$file_list"; then
+    while IFS= read -r -d '' file; do
+      log_debug "Processing file: $file"
+      result="$(process_file "$file" "$license" "$title")"
+      counts[result]=$((counts[result] + 1))
+    done < "$file_list"
+  else
+    log_error "Failed to discover files below: $dir"
+    counts[RESULT_ERROR]=1
+  fi
+  rm -f "$file_list"
 
   local processed="${counts[$RESULT_UPDATED]}" skipped="${counts[$RESULT_SKIPPED]}" errors="${counts[$RESULT_ERROR]}"
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."

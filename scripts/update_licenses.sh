@@ -30,13 +30,26 @@ readonly TMP_DIR
 readonly SPDX_CLONE_DIR="$TMP_DIR/spdx-license-list-data"
 readonly STAGED_LICENSES_DIR="$TMP_DIR/licenses"
 readonly BACKUP_LICENSES_DIR="$TMP_DIR/licenses.backup"
+INSTALL_STARTED=0
+INSTALL_COMPLETE=0
+HAD_LIVE_DATABASE=0
 
 # shellcheck source=scripts/lib/logging.bash
 source "$SCRIPT_DIR/lib/logging.bash"
 
 # --- Error Handling ---
-# cleanup: Removes temporary directories created during execution.
+# rollback_license_database: Restores live data after an interrupted install.
+rollback_license_database() {
+  [[ $INSTALL_STARTED -eq 1 && $INSTALL_COMPLETE -eq 0 ]] || return 0
+  [[ -d "$LOCAL_LICENSES_DIR" ]] && mv "$LOCAL_LICENSES_DIR" "$TMP_DIR/licenses.failed"
+  if [[ $HAD_LIVE_DATABASE -eq 1 && -d "$BACKUP_LICENSES_DIR" ]]; then
+    mv "$BACKUP_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
+  fi
+}
+
+# cleanup: Rolls back incomplete installation and removes temporary data.
 cleanup() {
+  rollback_license_database
   rm -rf "$TMP_DIR"
 }
 
@@ -46,7 +59,16 @@ on_error() {
   exit 1
 }
 
+# on_signal: Converts interruption signals into a rollback-triggering exit.
+# Arguments: signal_name
+on_signal() {
+  log_error "Interrupted by $1; restoring the previous license database"
+  exit 130
+}
+
 trap on_error ERR
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 trap cleanup EXIT
 
 # --- Dependencies ---
@@ -127,12 +149,13 @@ validate_staged_database() {
 
 # install_staged_database: Replaces the live database and rolls back on failure.
 install_staged_database() {
-  [[ -d "$LOCAL_LICENSES_DIR" ]] && mv "$LOCAL_LICENSES_DIR" "$BACKUP_LICENSES_DIR"
-  if mv "$STAGED_LICENSES_DIR" "$LOCAL_LICENSES_DIR"; then
-    return 0
+  INSTALL_STARTED=1
+  if [[ -d "$LOCAL_LICENSES_DIR" ]]; then
+    HAD_LIVE_DATABASE=1
+    mv "$LOCAL_LICENSES_DIR" "$BACKUP_LICENSES_DIR"
   fi
-  [[ -d "$BACKUP_LICENSES_DIR" ]] && mv "$BACKUP_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
-  return 1
+  mv "$STAGED_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
+  INSTALL_COMPLETE=1
 }
 
 # --- Root LICENSE ---

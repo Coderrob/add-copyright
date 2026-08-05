@@ -97,6 +97,29 @@ is_major_release() {
 }
 
 # --- Release Steps ---
+# ensure_remote_tag_available: Verifies remote inspection and tag availability.
+# Arguments: tag
+ensure_remote_tag_available() {
+  local remote_status=0
+  git ls-remote --exit-code --tags "$GIT_REMOTE" "refs/tags/$1" >/dev/null 2>&1 || remote_status=$?
+  case "$remote_status" in
+    0) log_error "Tag already exists remotely: $1"; return 1 ;;
+    2) return 0 ;;
+    *) log_error "Unable to inspect remote tags on $GIT_REMOTE"; return 1 ;;
+  esac
+}
+
+# ensure_release_ready: Verifies the remote and requested tag are available.
+# Arguments: tag
+ensure_release_ready() {
+  git remote get-url "$GIT_REMOTE" >/dev/null
+  if git show-ref --verify --quiet "refs/tags/$1"; then
+    log_error "Tag already exists locally: $1"
+    return 1
+  fi
+  ensure_remote_tag_available "$1"
+}
+
 # run_git: Executes git or logs the exact mutation during a dry run.
 # Arguments: dry_run, git_arguments...
 run_git() {
@@ -136,28 +159,23 @@ update_major_tags() {
   create_tag "$dry_run" "$latest_major" "Sync $latest_major tag with $new_tag" --force
 }
 
-# push_tags: Pushes tags to the remote repository.
+# push_release_refs: Atomically publishes all release references.
 # Arguments: dry_run, is_major, new_tag, latest_tag
-push_tags() {
+push_release_refs() {
   local dry_run="$1" is_major="$2" new_tag="$3" latest_tag="$4"
-
-  run_git "$dry_run" push "$GIT_REMOTE" "$new_tag"
+  local major refs
+  major="$(major_tag_of "$new_tag")"
+  [[ "$is_major" == "true" ]] || major="$(major_tag_of "$latest_tag")"
+  refs=("refs/tags/$new_tag:refs/tags/$new_tag" "+refs/tags/$major:refs/tags/$major")
 
   if [[ "$is_major" == "true" ]]; then
-    local new_major
-    new_major="$(major_tag_of "$new_tag")"
-    run_git "$dry_run" push "$GIT_REMOTE" "$new_major"
-    log_info "Tags: ${BOLD_GREEN}$new_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
-    return 0
+    refs+=("refs/heads/releases/$major:refs/heads/releases/$major")
   fi
-
-  local latest_major
-  latest_major="$(major_tag_of "$latest_tag")"
-  run_git "$dry_run" push "$GIT_REMOTE" "$latest_major" --force
-  log_info "Tags: ${BOLD_GREEN}$latest_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
+  run_git "$dry_run" push --atomic "$GIT_REMOTE" "${refs[@]}"
+  log_info "Published release references for ${BOLD_GREEN}$new_tag${OFF} atomically"
 }
 
-# create_release_branch: Creates a release branch for major versions.
+# create_release_branch: Creates the local release branch for major versions.
 # Arguments: dry_run, is_major, new_tag
 create_release_branch() {
   local dry_run="$1" is_major="$2" new_tag="$3"
@@ -166,9 +184,8 @@ create_release_branch() {
 
   local new_major
   new_major="$(major_tag_of "$new_tag")"
-  log_info "Creating and pushing new releases branch for major version: ${BOLD_GREEN}$new_major${OFF}"
+  log_info "Creating releases branch for major version: ${BOLD_GREEN}$new_major${OFF}"
   run_git "$dry_run" branch "releases/$new_major" "$new_major"
-  run_git "$dry_run" push --set-upstream "$GIT_REMOTE" "releases/$new_major"
 }
 
 # parse_arguments: Prints the dry-run flag and validated release tag.
@@ -204,6 +221,7 @@ main() {
   local parsed dry_run new_tag
   parsed="$(parse_arguments "$@")"
   read -r dry_run new_tag <<< "$parsed"
+  ensure_release_ready "$new_tag"
 
   local latest_tag
   latest_tag="$(get_latest_tag)"
@@ -214,8 +232,8 @@ main() {
   local is_major
   is_major="$(classify_release "$latest_tag" "$new_tag")"
   update_major_tags "$dry_run" "$is_major" "$new_tag" "$latest_tag"
-  push_tags "$dry_run" "$is_major" "$new_tag" "$latest_tag"
   create_release_branch "$dry_run" "$is_major" "$new_tag"
+  push_release_refs "$dry_run" "$is_major" "$new_tag" "$latest_tag"
 
   log_info "${BOLD_GREEN}Done!${OFF}"
 }

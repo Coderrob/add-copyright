@@ -64,10 +64,11 @@ For every supported source file, the action:
 
 1. Excludes generated, editor, dependency, Git metadata, and ignored paths.
 2. Resolves a bundled SPDX license record.
-3. Replaces standard year, owner, and copyright placeholders.
+3. Adds an explicit `SPDX-License-Identifier` and replaces standard year, owner, and copyright placeholders.
 4. Formats the notice using the file type's comment style.
-5. Skips the file when the current year and holder are already present.
-6. Prepends the notice while preserving the original source content.
+5. Skips only when the requested license, current year, and holder are already present.
+6. Replaces a previously managed SPDX notice when the requested license changes.
+7. Preserves executable modes, source content, shebangs, and Python encoding preambles.
 
 An invalid directory, unavailable license, missing dependency, or failed file update returns a nonzero exit status. Logs identify the failing operation and the final processed/skipped/error counts.
 
@@ -122,7 +123,7 @@ The same implementation can be run without GitHub Actions:
 ./scripts/copyright.sh ./src MIT "Acme Corporation"
 ```
 
-Required tools are Bash, Git, `find`, `grep`, `jq`, `sed`, `gzip`, and standard Unix file utilities.
+Required tools are Bash 4.3 or newer, Git, `find`, `grep`, `jq`, `sed`, `gzip`, and standard Unix file utilities. Bash 4.3 is the minimum because the manifest loader uses associative-array namerefs; the Bash 3.2 bundled with older macOS releases is not supported. GitHub-hosted Linux runners and the project devcontainer satisfy this requirement.
 
 Set `DEBUG=1` to include file-discovery and formatting diagnostics:
 

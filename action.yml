@@ -38,16 +38,11 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Ensure Script Permission
-      id: ensure-executable
-      shell: bash
-      run: chmod +x "$GITHUB_ACTION_PATH/scripts/copyright.sh"
-
     - name: Execute Copyright Update
       id: execute-update
       shell: bash
       run: |
-        "$GITHUB_ACTION_PATH/scripts/copyright.sh" \
+        bash "$GITHUB_ACTION_PATH/scripts/copyright.sh" \
         "${{ inputs.working-directory }}" \
         "${{ inputs.license }}" \
         "${{ inputs.name }}"

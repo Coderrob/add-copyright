@@ -131,3 +131,64 @@ export const value = 1;"
   [ "$(awk -F '\t' '!/^#/ { print $1 }' "$manifest" | sort | uniq -d | wc -l)" -eq 0 ]
   [ "$(awk -F '\t' '!/^#/ && NF == 2 { count++ } END { print count }' "$manifest")" -ge 18 ]
 }
+
+@test "preserves a script shebang on the first line" {
+  create_source "tool.py" $'#!/usr/bin/env python3\nprint("hello")'
+  chmod 755 "$(source_path tool.py)"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  [ "$(head -n 1 "$(source_path tool.py)")" = '#!/usr/bin/env python3' ]
+  assert_file_contains "tool.py" "SPDX-License-Identifier: MIT"
+}
+
+@test "preserves Python encoding declarations with the interpreter preamble" {
+  create_source "encoded.py" $'#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\nprint("hello")'
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  [ "$(sed -n '2p' "$(source_path encoded.py)")" = '# -*- coding: utf-8 -*-' ]
+  [ "$(sed -n '3p' "$(source_path encoded.py)")" = '# SPDX-License-Identifier: MIT' ]
+}
+
+@test "does not skip a requested license change" {
+  create_source "example.py" "print('license change')"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  run_copyright Apache-2.0 "BATS Runner"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Summary: 1 files updated"* ]]
+  assert_file_contains "example.py" "SPDX-License-Identifier: Apache-2.0"
+  ! grep -Fq "SPDX-License-Identifier: MIT" "$(source_path example.py)"
+}
+
+@test "replaces a prior block-comment SPDX notice" {
+  create_source "example.js" "console.log('license change');"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  run_copyright Apache-2.0 "BATS Runner"
+  [ "$status" -eq 0 ]
+  assert_file_contains "example.js" "SPDX-License-Identifier: Apache-2.0"
+  ! grep -Fq "SPDX-License-Identifier: MIT" "$(source_path example.js)"
+  [ "$(grep -c 'console.log' "$(source_path example.js)")" -eq 1 ]
+}
+
+@test "preserves source file permissions" {
+  create_source "tool.sh" $'#!/usr/bin/env bash\necho hello'
+  chmod 751 "$(source_path tool.sh)"
+  local mode_before
+  mode_before="$(stat -c '%a' "$(source_path tool.sh)")"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  [ "$(stat -c '%a' "$(source_path tool.sh)")" = "$mode_before" ]
+}
+
+@test "reports file-discovery failures through status and action outputs" {
+  mkdir -p "$TEST_WORKSPACE/blocked"
+  create_source "blocked/example.py" "print('hidden')"
+  chmod 000 "$TEST_WORKSPACE/blocked"
+  local output_file="$BATS_TEST_TMPDIR/discovery-output"
+  run env GITHUB_OUTPUT="$output_file" "$COPYRIGHT_SCRIPT" \
+    "$TEST_WORKSPACE" MIT "BATS Runner"
+  chmod 700 "$TEST_WORKSPACE/blocked"
+  [ "$status" -ne 0 ]
+  grep -qx 'error-count=1' "$output_file"
+}

@@ -41,3 +41,22 @@ teardown() {
   [ "$status" -ne 0 ]
   [ "$(<licenses/sentinel.json.gz)" = "keep me" ]
 }
+
+@test "license updater restores the live database when installation is interrupted" {
+  printf 'keep me\n' > "$UPDATE_WORKSPACE/licenses/sentinel.json.gz"
+  mkdir -p "$TEST_ROOT/bin"
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'if [[ "$1" == "licenses" && "$2" == *"licenses.backup" ]]; then' \
+    '  /usr/bin/mv "$@"' \
+    '  kill -TERM "$PPID"' \
+    '  sleep 1' \
+    'else' \
+    '  /usr/bin/mv "$@"' \
+    'fi' > "$TEST_ROOT/bin/mv"
+  chmod +x "$TEST_ROOT/bin/mv"
+  cd "$UPDATE_WORKSPACE"
+  run env PATH="$TEST_ROOT/bin:$PATH" SPDX_REPO="$SPDX_FIXTURE" \
+    MIN_LICENSE_COUNT=1 bash "$BATS_TEST_DIRNAME/../update_licenses.sh"
+  [ "$status" -eq 130 ]
+  [ "$(<licenses/sentinel.json.gz)" = "keep me" ]
+}

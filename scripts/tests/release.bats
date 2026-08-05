@@ -2,7 +2,11 @@
 
 # setup: Creates a disposable Git repository for each release test.
 setup() {
-  TEST_REPOSITORY="$(mktemp -d)"
+  TEST_ROOT="$(mktemp -d)"
+  TEST_REPOSITORY="$TEST_ROOT/repository"
+  RELEASE_REMOTE="$TEST_ROOT/remote.git"
+  git init --bare -q "$RELEASE_REMOTE"
+  mkdir -p "$TEST_REPOSITORY"
   git -C "$TEST_REPOSITORY" init -q
   git -C "$TEST_REPOSITORY" config user.name "BATS Runner"
   git -C "$TEST_REPOSITORY" config user.email "bats@example.com"
@@ -10,11 +14,12 @@ setup() {
   git -C "$TEST_REPOSITORY" add package.json
   git -C "$TEST_REPOSITORY" commit -qm init
   git -C "$TEST_REPOSITORY" tag -a v0.0.1 -m "v0.0.1 Release"
+  git -C "$TEST_REPOSITORY" remote add origin "$RELEASE_REMOTE"
 }
 
 # teardown: Removes the disposable release-test repository.
 teardown() {
-  rm -rf "$TEST_REPOSITORY"
+  rm -rf "$TEST_ROOT"
 }
 
 @test "rejects an invalid semantic version tag" {
@@ -26,10 +31,22 @@ teardown() {
 
 @test "creates an annotated release tag before publishing" {
   cd "$TEST_REPOSITORY"
-  git remote add origin .
   run "$BATS_TEST_DIRNAME/../release.sh" v0.1.0
   [ "$status" -eq 0 ]
   git tag --list v0.1.0 | grep -qx v0.1.0
+}
+
+@test "atomic publication leaves no remote tags when one ref is rejected" {
+  printf '%s\n' '#!/usr/bin/env bash' \
+    'while read -r _ _ ref; do' \
+    '  [[ "$ref" == "refs/tags/v0" ]] && exit 1' \
+    'done' > "$RELEASE_REMOTE/hooks/pre-receive"
+  chmod +x "$RELEASE_REMOTE/hooks/pre-receive"
+  cd "$TEST_REPOSITORY"
+  run "$BATS_TEST_DIRNAME/../release.sh" v0.2.0
+  [ "$status" -ne 0 ]
+  [ -z "$(git --git-dir="$RELEASE_REMOTE" tag --list v0.2.0)" ]
+  [ -z "$(git --git-dir="$RELEASE_REMOTE" tag --list v0)" ]
 }
 
 @test "dry run reports release mutations without changing git state" {
