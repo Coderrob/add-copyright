@@ -23,7 +23,7 @@ teardown() {
 
 @test "license updater emits compressed runtime records" {
   cd "$UPDATE_WORKSPACE"
-  run env SPDX_REPO="$SPDX_FIXTURE" \
+  run env SPDX_REPO="$SPDX_FIXTURE" bash \
     "$BATS_TEST_DIRNAME/../update_licenses.sh"
   [ "$status" -eq 0 ]
   [ -f "$UPDATE_WORKSPACE/licenses/MIT.json.gz" ]
