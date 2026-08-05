@@ -49,6 +49,17 @@ teardown() {
   [ -z "$(git --git-dir="$RELEASE_REMOTE" tag --list v0)" ]
 }
 
+@test "preflight rejects a release tag that already exists remotely" {
+  git -C "$TEST_REPOSITORY" tag -a v0.3.0 -m remote-fixture
+  git -C "$TEST_REPOSITORY" push -q origin v0.3.0
+  git -C "$TEST_REPOSITORY" tag -d v0.3.0 >/dev/null
+  cd "$TEST_REPOSITORY"
+  run "$BATS_TEST_DIRNAME/../release.sh" v0.3.0
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"already exists remotely"* ]]
+  [ -z "$(git tag --list v0.3.0)" ]
+}
+
 @test "dry run reports release mutations without changing git state" {
   cd "$TEST_REPOSITORY"
   run "$BATS_TEST_DIRNAME/../release.sh" --dry-run v1.0.0
