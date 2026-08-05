@@ -37,6 +37,9 @@ teardown() {
 }
 
 @test "atomic publication leaves no remote tags when one ref is rejected" {
+  git -C "$TEST_REPOSITORY" tag -a v0 -m prior-major v0.0.1
+  local prior_major
+  prior_major="$(git -C "$TEST_REPOSITORY" rev-parse refs/tags/v0)"
   printf '%s\n' '#!/usr/bin/env bash' \
     'while read -r _ _ ref; do' \
     '  [[ "$ref" == "refs/tags/v0" ]] && exit 1' \
@@ -47,6 +50,19 @@ teardown() {
   [ "$status" -ne 0 ]
   [ -z "$(git --git-dir="$RELEASE_REMOTE" tag --list v0.2.0)" ]
   [ -z "$(git --git-dir="$RELEASE_REMOTE" tag --list v0)" ]
+  [ -z "$(git tag --list v0.2.0)" ]
+  [ "$(git rev-parse refs/tags/v0)" = "$prior_major" ]
+}
+
+@test "failed major publication removes its local release branch" {
+  printf '%s\n' '#!/usr/bin/env bash' 'exit 1' > "$RELEASE_REMOTE/hooks/pre-receive"
+  chmod +x "$RELEASE_REMOTE/hooks/pre-receive"
+  cd "$TEST_REPOSITORY"
+  run "$BATS_TEST_DIRNAME/../release.sh" v1.0.0
+  [ "$status" -ne 0 ]
+  [ -z "$(git tag --list v1.0.0)" ]
+  [ -z "$(git tag --list v1)" ]
+  ! git show-ref --verify --quiet refs/heads/releases/v1
 }
 
 @test "preflight rejects a release tag that already exists remotely" {

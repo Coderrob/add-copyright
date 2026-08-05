@@ -17,8 +17,8 @@ teardown() {
   run_copyright MIT "BATS Runner"
   [ "$status" -eq 0 ]
   assert_file_contains "example.js" "Copyright (c) $(date +%Y) BATS Runner"
-  assert_file_contains "example.js" "Permission is hereby granted"
   assert_file_contains "example.js" "console.log('hello');"
+  ! grep -Fq "Permission is hereby granted" "$(source_path example.js)"
 }
 
 @test "is idempotent" {
@@ -37,6 +37,18 @@ teardown() {
   run_copyright apache-2.0 "ACME/Corp & Co"
   [ "$status" -eq 0 ]
   assert_file_contains "example.ts" "Copyright $(date +%Y) ACME/Corp & Co"
+}
+
+@test "applies the bundled license-specific standard header verbatim" {
+  create_source "example.ts" "export const value = 1;"
+  run_copyright Apache-2.0 "Template Runner"
+  [ "$status" -eq 0 ]
+  local expected actual
+  expected="$(zcat "$PROJECT_ROOT/licenses/Apache-2.0.json.gz" | jq -r .standardLicenseHeader \
+    | sed "s/\[yyyy\]/$(date +%Y)/g; s/\[name of copyright owner\]/Template Runner/g")"
+  actual="$(sed -n '/SPDX-License-Identifier: Apache-2.0/,/add-copyright: end/p' \
+    "$(source_path example.ts)" | sed '1d;$d;s/^ \* //')"
+  [ "$actual" = "$expected" ]
 }
 
 @test "respects gitignore" {
@@ -146,7 +158,8 @@ export const value = 1;"
   run_copyright MIT "BATS Runner"
   [ "$status" -eq 0 ]
   [ "$(sed -n '2p' "$(source_path encoded.py)")" = '# -*- coding: utf-8 -*-' ]
-  [ "$(sed -n '3p' "$(source_path encoded.py)")" = '# SPDX-License-Identifier: MIT' ]
+  [ "$(sed -n '3p' "$(source_path encoded.py)")" = '# add-copyright: begin' ]
+  [ "$(sed -n '4p' "$(source_path encoded.py)")" = '# SPDX-License-Identifier: MIT' ]
 }
 
 @test "does not skip a requested license change" {
@@ -191,4 +204,12 @@ export const value = 1;"
   chmod 700 "$TEST_WORKSPACE/blocked"
   [ "$status" -ne 0 ]
   grep -qx 'error-count=1' "$output_file"
+}
+
+@test "does not treat SPDX-like source text as an owned header" {
+  create_source "example.py" $'value = "SPDX-License-Identifier: MIT"\nowner = "Copyright (c) '"$(date +%Y)"' BATS Runner"'
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Summary: 1 files updated"* ]]
+  [ "$(grep -c 'SPDX-License-Identifier: MIT' "$(source_path example.py)")" -eq 2 ]
 }

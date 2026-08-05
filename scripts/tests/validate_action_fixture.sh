@@ -18,8 +18,8 @@ capture_fixture() {
   year="$(date +%Y)"
   assert_contains "$source_dir/example.js" "Copyright (c) $year Test Runner"
   assert_contains "$source_dir/example.py" "Copyright (c) $year Test Runner"
-  assert_contains "$source_dir/example.js" "Permission is hereby granted, free of charge"
-  assert_contains "$source_dir/example.py" "Permission is hereby granted, free of charge"
+  assert_contains "$source_dir/example.js" "SPDX-License-Identifier: MIT"
+  assert_contains "$source_dir/example.py" "SPDX-License-Identifier: MIT"
   assert_contains "$source_dir/example.js" "// sample"
   assert_contains "$source_dir/example.py" 'print("sample")'
   [[ -n "$(git status --porcelain -- "$source_dir")" ]]

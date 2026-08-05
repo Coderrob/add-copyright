@@ -171,8 +171,53 @@ push_release_refs() {
   if [[ "$is_major" == "true" ]]; then
     refs+=("refs/heads/releases/$major:refs/heads/releases/$major")
   fi
-  run_git "$dry_run" push --atomic "$GIT_REMOTE" "${refs[@]}"
+  run_git "$dry_run" push --atomic "$GIT_REMOTE" "${refs[@]}" || return 1
   log_info "Published release references for ${BOLD_GREEN}$new_tag${OFF} atomically"
+}
+
+# ref_target: Prints the current object for a local reference when present.
+# Arguments: full_ref_name
+ref_target() {
+  git rev-parse --verify --quiet "$1" 2>/dev/null || true
+}
+
+# restore_ref: Restores a local reference to its prior target or removes it.
+# Arguments: full_ref_name, prior_target
+restore_ref() {
+  if [[ -n "$2" ]]; then
+    git update-ref "$1" "$2"
+    return 0
+  fi
+  git update-ref -d "$1" 2>/dev/null || true
+}
+
+# rollback_release_refs: Restores all local references after push failure.
+# Arguments: new_tag, major_tag, prior_major_target, release_branch, prior_branch_target
+rollback_release_refs() {
+  log_warn "Atomic publication failed; restoring local release references"
+  restore_ref "refs/tags/$1" ""
+  restore_ref "refs/tags/$2" "$3"
+  [[ -n "$4" ]] && restore_ref "refs/heads/$4" "$5"
+}
+
+# publish_release: Creates local refs and atomically publishes or rolls back.
+# Arguments: dry_run, new_tag, latest_tag, is_major
+publish_release() {
+  local dry_run="$1" new_tag="$2" latest_tag="$3" is_major="$4"
+  local major_tag release_branch="" prior_major prior_branch=""
+  major_tag="$(major_tag_of "$new_tag")"
+  [[ "$is_major" == "true" ]] || major_tag="$(major_tag_of "$latest_tag")"
+  [[ "$is_major" == "true" ]] && release_branch="releases/$major_tag"
+  prior_major="$(ref_target "refs/tags/$major_tag")"
+  [[ -n "$release_branch" ]] && prior_branch="$(ref_target "refs/heads/$release_branch")"
+  create_tag "$dry_run" "$new_tag" "$new_tag Release"
+  update_major_tags "$dry_run" "$is_major" "$new_tag" "$latest_tag"
+  create_release_branch "$dry_run" "$is_major" "$new_tag"
+  if push_release_refs "$dry_run" "$is_major" "$new_tag" "$latest_tag"; then
+    return 0
+  fi
+  [[ "$dry_run" == "true" ]] || rollback_release_refs "$new_tag" "$major_tag" "$prior_major" "$release_branch" "$prior_branch"
+  return 1
 }
 
 # create_release_branch: Creates the local release branch for major versions.
@@ -227,13 +272,9 @@ main() {
   latest_tag="$(get_latest_tag)"
   log_info "Latest release tag: ${BOLD_BLUE}$latest_tag${OFF}"
 
-  create_tag "$dry_run" "$new_tag" "$new_tag Release"
-
   local is_major
   is_major="$(classify_release "$latest_tag" "$new_tag")"
-  update_major_tags "$dry_run" "$is_major" "$new_tag" "$latest_tag"
-  create_release_branch "$dry_run" "$is_major" "$new_tag"
-  push_release_refs "$dry_run" "$is_major" "$new_tag" "$latest_tag"
+  publish_release "$dry_run" "$new_tag" "$latest_tag" "$is_major"
 
   log_info "${BOLD_GREEN}Done!${OFF}"
 }

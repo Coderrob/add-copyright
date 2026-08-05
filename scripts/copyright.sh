@@ -38,6 +38,8 @@ readonly -a REQUIRED_COMMANDS=(git sed find mktemp jq grep zcat head tail chmod 
 source "$SCRIPT_DIR/lib/logging.bash"
 # shellcheck source=scripts/lib/comment_styles.bash
 source "$SCRIPT_DIR/lib/comment_styles.bash"
+# shellcheck source=scripts/lib/header_operations.bash
+source "$SCRIPT_DIR/lib/header_operations.bash"
 
 USE_GIT=0
 GIT_ROOT=""
@@ -202,28 +204,31 @@ find_license_txt() {
     "$LICENSES_DIR/${license^^}.txt"
 }
 
-# license_text_from_json: Extracts license text from a JSON license file.
+# default_license_header: Prints the fallback header for licenses without one.
+# Arguments: copyright_title
+default_license_header() {
+  printf 'Copyright (c) %s %s' "$CURRENT_YEAR" "$1"
+}
+
+# license_header_from_json: Resolves the definition's file-header template.
 # Arguments: json_file, title
-license_text_from_json() {
+license_header_from_json() {
   local json_file="$1" title="$2"
   local header
   header="$(extract_json_field "$json_file" '.standardLicenseHeader')"
   [[ -n "$header" ]] && { process_license_placeholders "$header" "$title"; return 0; }
-
-  local license_text
-  license_text="$(extract_json_field "$json_file" '.licenseText')"
-  [[ -n "$license_text" ]] && { process_license_placeholders "$license_text" "$title"; return 0; }
-  return 1
+  default_license_header "$title"
 }
 
-# get_license_text: Retrieves the license text for a given license type and title.
+# get_license_header: Retrieves the license-specific file-header content.
 # Arguments: license_type, title
-get_license_text() {
+get_license_header() {
   local license="$1" title="$2"
 
   local json_file
   if json_file="$(find_license_json "$license")"; then
-    license_text_from_json "$json_file" "$title" && return 0
+    license_header_from_json "$json_file" "$title"
+    return 0
   fi
 
   local txt_file
@@ -308,29 +313,6 @@ find_files_to_process() {
 }
 
 # --- File Updates ---
-# has_current_notice: Checks for the requested current copyright and license.
-# Arguments: file_path, license_type, title
-has_current_notice() {
-  local file="$1" license="$2" title="$3"
-  grep -Fiq "SPDX-License-Identifier: $license" "$file" || return 1
-  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" \
-    || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
-}
-
-# preamble_line_count: Counts interpreter and Python encoding preamble lines.
-# Arguments: file_path
-preamble_line_count() {
-  local file="$1" first second count=0
-  IFS= read -r first < "$file" || true
-  second="$(sed -n '2p' "$file")"
-  [[ "$first" == '#!'* ]] && count=1
-  if [[ "$(get_file_extension "$file")" == "py" ]]; then
-    [[ "$first" =~ coding[:=] ]] && count=1
-    [[ $count -eq 1 && "$second" =~ coding[:=] ]] && count=2
-  fi
-  printf '%s' "$count"
-}
-
 # write_updated_file: Atomically replaces one file with its licensed content.
 # Arguments: license_notice, file_path
 write_updated_file() {
@@ -348,32 +330,6 @@ write_updated_file() {
   return 1
 }
 
-# write_licensed_content: Writes preserved preamble, notice, and source body.
-# Arguments: license_notice, file_path, preamble_line_count
-write_licensed_content() {
-  local notice="$1" file="$2" preamble_lines="$3"
-  [[ "$preamble_lines" -gt 0 ]] && head -n "$preamble_lines" "$file"
-  printf '%s\n\n' "$notice"
-  write_source_body "$file" "$preamble_lines"
-}
-
-# write_source_body: Writes source content without a prior managed SPDX notice.
-# Arguments: file_path, preamble_line_count
-write_source_body() {
-  awk -v start="$(( $2 + 1 ))" '
-    NR < start { next }
-    NR == start && /^(#|\/\/) SPDX-License-Identifier:/ { mode="line"; next }
-    NR == start && $0 == "/*" { opening=$0; mode="block-check"; next }
-    mode == "block-check" && /SPDX-License-Identifier:/ { mode="block"; next }
-    mode == "block-check" { print opening; mode=""; print; next }
-    mode == "line" && /^(#|\/\/) / { next }
-    mode == "block" && /^ \*\/$/ { mode="after"; next }
-    mode == "block" { next }
-    mode == "after" && /^$/ { mode=""; next }
-    { mode=""; print }
-  ' "$1"
-}
-
 # prepend_license_to_file: Prepends license notice to a file if it doesn't already have it.
 # Arguments: file_path, license_type, title
 prepend_license_to_file() {
@@ -384,12 +340,12 @@ prepend_license_to_file() {
   [[ -n "$comment_style" ]] || { log_debug "Skipping unsupported file: $file"; return "$RESULT_SKIPPED"; }
 
   local license_text
-  license_text="$(get_license_text "$license" "$title")" || { log_error "Failed to get license text for $license"; return "$RESULT_ERROR"; }
+  license_text="$(get_license_header "$license" "$title")" || { log_error "Failed to get license header for $license"; return "$RESULT_ERROR"; }
 
-  has_current_notice "$file" "$license" "$title" && { log_info "Skipping (already has license): $file"; return "$RESULT_SKIPPED"; }
+  managed_header_matches "$file" "$license" "$CURRENT_YEAR" "$title" && { log_info "Skipping (already has license): $file"; return "$RESULT_SKIPPED"; }
 
   local formatted_notice
-  license_text="SPDX-License-Identifier: $license"$'\n'"$license_text"
+  license_text="$MANAGED_HEADER_BEGIN"$'\n'"SPDX-License-Identifier: $license"$'\n'"$license_text"$'\n'"$MANAGED_HEADER_END"
   formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
   log_debug "Formatted notice: $formatted_notice"
 

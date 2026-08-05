@@ -63,12 +63,15 @@ The action publishes `updated-count`, `skipped-count`, `error-count`, and `chang
 For every supported source file, the action:
 
 1. Excludes generated, editor, dependency, Git metadata, and ignored paths.
-2. Resolves a bundled SPDX license record.
-3. Adds an explicit `SPDX-License-Identifier` and replaces standard year, owner, and copyright placeholders.
-4. Formats the notice using the file type's comment style.
-5. Skips only when the requested license, current year, and holder are already present.
-6. Replaces a previously managed SPDX notice when the requested license changes.
-7. Preserves executable modes, source content, shebangs, and Python encoding preambles.
+2. Resolves the bundled SPDX license record and uses its `standardLicenseHeader` when defined.
+3. Uses a concise copyright fallback when the definition has no file-header template, rather than embedding the full license text.
+4. Adds an explicit `SPDX-License-Identifier` and replaces standard year, owner, and copyright placeholders.
+5. Formats the notice using the file type's comment style.
+6. Skips only when the requested license, current year, and holder are already present.
+7. Replaces a previously managed SPDX notice when the requested license changes.
+8. Preserves executable modes, source content, shebangs, and Python encoding preambles.
+
+Generated notices contain comment-safe `add-copyright: begin` and `add-copyright: end` ownership markers. Replacement and idempotency checks are restricted to that marked header region, so user-authored SPDX text elsewhere in a file remains untouched.
 
 An invalid directory, unavailable license, missing dependency, or failed file update returns a nonzero exit status. Logs identify the failing operation and the final processed/skipped/error counts.
 
@@ -185,7 +188,7 @@ Releases are noninteractive and require an explicit semantic tag:
 ./scripts/release.sh --dry-run v2.1.0
 ```
 
-Dry-run mode reports every tag, push, and release-branch mutation without changing the repository or remote.
+Dry-run mode reports every tag, push, and release-branch mutation without changing the repository or remote. Publication uses one atomic push; if it fails, newly created local tags and release branches are removed and prior floating tags are restored.
 
 To test the updater without changing this checkout, use the BATS fixture:
 
