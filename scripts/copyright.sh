@@ -21,53 +21,38 @@ SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly SCRIPT_DIR
-readonly LICENSES_DIR="${GITHUB_ACTION_PATH:-${SCRIPT_DIR}/..}/licenses"
-TMP_FILE="$(mktemp)"
-readonly TMP_FILE
+ACTION_ROOT="${GITHUB_ACTION_PATH:-$SCRIPT_DIR/..}"
+readonly ACTION_ROOT
+readonly LICENSES_DIR="$ACTION_ROOT/licenses"
+readonly COMMENT_STYLE_MANIFEST="$SCRIPT_DIR/config/comment-styles.tsv"
 CURRENT_YEAR="$(date +"%Y")"
 readonly CURRENT_YEAR
+readonly RESULT_UPDATED=0
+readonly RESULT_SKIPPED=1
+readonly RESULT_ERROR=2
+readonly -a EXCLUDED_DIRS=(.git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses)
+readonly -a EXCLUDED_FILES=(.eslintrc\* eslint.config.\* .DS_Store Thumbs.db)
+readonly -a REQUIRED_COMMANDS=(git sed find mktemp jq grep zcat head tail chmod mv)
 
-# File processing constants
-readonly EXCLUDED_DIRS=".git node_modules .next dist build .cache .vscode .idea __pycache__ .github .continue licenses"
-readonly EXCLUDED_FILES=".eslintrc* eslint.config.* .DS_Store Thumbs.db"
-readonly REQUIRED_COMMANDS="git sed find mktemp jq grep zcat"
+# shellcheck source=scripts/lib/logging.bash
+source "$SCRIPT_DIR/lib/logging.bash"
+# shellcheck source=scripts/lib/comment_styles.bash
+source "$SCRIPT_DIR/lib/comment_styles.bash"
+# shellcheck source=scripts/lib/header_operations.bash
+source "$SCRIPT_DIR/lib/header_operations.bash"
 
 USE_GIT=0
 GIT_ROOT=""
 
-# --- Logging ---
-# log: Logs a message with timestamp, script name, and log level.
-log() {
-  local level="$1"; shift
-  printf '%s [%s] %s: %s\n' "$(date +'%Y-%m-%d %H:%M:%S')" "$SCRIPT_NAME" "$level" "$*" >&2
-}
-# log_info: Logs an informational message.
-log_info() { log "INFO" "$@"; }
-# log_warn: Logs a warning message.
-log_warn() { log "WARN" "$@"; }
-# log_error: Logs an error message.
-log_error() { log "ERROR" "$@"; }
-# log_debug: Logs a debug message if DEBUG is set to 1.
-log_debug() { [[ "${DEBUG:-}" == "1" ]] && log "DEBUG" "$@"; }
-
 # --- Error Handling ---
-# cleanup: Removes temporary files created during script execution.
-cleanup() {
-  if [[ -f "$TMP_FILE" ]]; then
-    rm "$TMP_FILE" 2>/dev/null
-  fi
-}
-
-# on_error: Handles script errors by logging the exit code and cleaning up.
+# on_error: Handles unexpected script errors with an actionable exit message.
 on_error() {
   local exit_code=$?
   [[ $exit_code -eq 130 ]] && exit 130
   echo "Error: Script failed with exit code $exit_code" >&2
-  cleanup
   exit $exit_code
 }
 
-trap cleanup EXIT
 trap on_error ERR
 
 # --- Dependencies ---
@@ -86,15 +71,20 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+# missing_dependencies: Prints each unavailable required command.
+missing_dependencies() {
+  local cmd
+  for cmd in "${REQUIRED_COMMANDS[@]}"; do
+    if ! require_cmd "$cmd"; then
+      printf '%s\n' "$cmd"
+    fi
+  done
+}
+
 # verify_dependencies: Verifies that all required commands are installed.
 verify_dependencies() {
   local missing=()
-  local cmd
-  for cmd in $REQUIRED_COMMANDS; do
-    if ! require_cmd "$cmd"; then
-      missing+=("$cmd")
-    fi
-  done
+  mapfile -t missing < <(missing_dependencies)
 
   if [[ ${#missing[@]} -eq 0 ]]; then
     return 0
@@ -122,25 +112,9 @@ extract_json_field() {
 }
 
 # --- Comment Styles ---
-declare -A COMMENT_STYLES=(
-  [sh]="#"
-  [py]="#"
-  [js]="/*"
-  [ts]="/*"
-  [java]="/*"
-  [cpp]="/*"
-  [hpp]="/*"
-  [c]="/*"
-  [h]="/*"
-  [cs]="/*"
-  [go]="//"
-  [swift]="//"
-  [php]="/*"
-  [rb]="#"
-  [yml]="#"
-  [yaml]="#"
-  [json]="/*"
-)
+# shellcheck disable=SC2034 # Read indirectly through a nameref helper.
+declare -A COMMENT_STYLES=()
+load_comment_styles "$COMMENT_STYLE_MANIFEST" COMMENT_STYLES
 
 # --- Text Formatting ---
 # format_block_comment: Formats license text as a block comment (/* */).
@@ -156,7 +130,7 @@ format_block_comment() {
 # Arguments: license_text, prefix
 format_line_comment() {
   local license_text="$1" prefix="$2"
-  printf '%s' "$license_text" | sed "s/^/$prefix/"
+  printf '%s' "$license_text" | sed "s|^|$prefix |"
 }
 
 # format_license_notice: Formats license text according to the comment style.
@@ -170,10 +144,10 @@ format_license_notice() {
   esac
 }
 
-# escape_sed_replacement: Escapes special characters for sed replacement strings.
+# escape_sed_replacement: Escapes special characters for sed replacement.
 # Arguments: text
 escape_sed_replacement() {
-  printf '%s' "$1" | sed -e 's/[\\&]/\\&/g'
+  printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
 }
 
 # process_license_placeholders: Replaces placeholders in license text with actual values.
@@ -230,28 +204,31 @@ find_license_txt() {
     "$LICENSES_DIR/${license^^}.txt"
 }
 
-# license_text_from_json: Extracts license text from a JSON license file.
+# default_license_header: Prints the fallback header for licenses without one.
+# Arguments: copyright_title
+default_license_header() {
+  printf 'Copyright (c) %s %s' "$CURRENT_YEAR" "$1"
+}
+
+# license_header_from_json: Resolves the definition's file-header template.
 # Arguments: json_file, title
-license_text_from_json() {
+license_header_from_json() {
   local json_file="$1" title="$2"
   local header
   header="$(extract_json_field "$json_file" '.standardLicenseHeader')"
   [[ -n "$header" ]] && { process_license_placeholders "$header" "$title"; return 0; }
-
-  local license_text
-  license_text="$(extract_json_field "$json_file" '.licenseText')"
-  [[ -n "$license_text" ]] && { process_license_placeholders "$license_text" "$title"; return 0; }
-  return 1
+  default_license_header "$title"
 }
 
-# get_license_text: Retrieves the license text for a given license type and title.
+# get_license_header: Retrieves the license-specific file-header content.
 # Arguments: license_type, title
-get_license_text() {
+get_license_header() {
   local license="$1" title="$2"
 
   local json_file
   if json_file="$(find_license_json "$license")"; then
-    license_text_from_json "$json_file" "$title" && return 0
+    license_header_from_json "$json_file" "$title"
+    return 0
   fi
 
   local txt_file
@@ -278,7 +255,7 @@ get_file_extension() {
 get_comment_style() {
   local ext
   ext="$(get_file_extension "$1")"
-  printf '%s' "${COMMENT_STYLES[$ext]:-}"
+  comment_style_for "$ext" COMMENT_STYLES
 }
 
 # is_excluded_file: Checks if a file should be excluded based on its name.
@@ -287,8 +264,8 @@ is_excluded_file() {
   local filename
   filename="$(basename "$1")"
   local pattern
-  for pattern in $EXCLUDED_FILES; do
-    # shellcheck disable=SC2053
+  for pattern in "${EXCLUDED_FILES[@]}"; do
+    # shellcheck disable=SC2053 # Patterns intentionally use shell globs.
     [[ "$filename" == $pattern ]] && return 0
   done
   return 1
@@ -299,7 +276,7 @@ is_excluded_file() {
 is_excluded_directory() {
   local file="$1"
   local dir
-  for dir in $EXCLUDED_DIRS; do
+  for dir in "${EXCLUDED_DIRS[@]}"; do
     [[ "$file" == *"/$dir/"* ]] && return 0
   done
   return 1
@@ -325,29 +302,32 @@ should_ignore_file() {
 # Arguments: directory
 find_files_to_process() {
   local dir="$1"
-  local -a prune_args=()
-  local d
-  for d in $EXCLUDED_DIRS; do
-    [[ ${#prune_args[@]} -gt 0 ]] && prune_args+=(-o)
-    prune_args+=(-name "$d")
+  local excluded_dir
+  local find_args=("$dir" -type d "(")
+  for excluded_dir in "${EXCLUDED_DIRS[@]}"; do
+    find_args+=(-name "$excluded_dir" -o)
   done
-  find "$dir" -type d \( "${prune_args[@]}" \) -prune -o -type f -print0
+  unset 'find_args[${#find_args[@]}-1]'
+  find_args+=(")" -prune -o -type f -print0)
+  find "${find_args[@]}"
 }
 
 # --- File Updates ---
-# has_current_copyright: Checks if a file already has the current year's copyright notice.
-# Arguments: file_path, title
-has_current_copyright() {
-  local file="$1" title="$2"
-  grep -Fiq "Copyright $CURRENT_YEAR $title" "$file" || grep -Fiq "Copyright (c) $CURRENT_YEAR $title" "$file"
-}
-
-# create_temp_file: Creates a temporary file with license notice prepended to file content.
+# write_updated_file: Atomically replaces one file with its licensed content.
 # Arguments: license_notice, file_path
-create_temp_file() {
-  printf '%s\n' "$1" > "$TMP_FILE"
-  printf '\n' >> "$TMP_FILE"
-  cat "$2" >> "$TMP_FILE"
+write_updated_file() {
+  local notice="$1" file="$2" temp_file preamble_lines
+  temp_file="$(mktemp "${file}.add-copyright.XXXXXX")"
+  preamble_lines="$(preamble_line_count "$file")"
+
+  if write_licensed_content "$notice" "$file" "$preamble_lines" > "$temp_file"; then
+    chmod --reference="$file" "$temp_file"
+    mv "$temp_file" "$file"
+    return 0
+  fi
+
+  rm -f "$temp_file"
+  return 1
 }
 
 # prepend_license_to_file: Prepends license notice to a file if it doesn't already have it.
@@ -357,21 +337,22 @@ prepend_license_to_file() {
 
   local comment_style
   comment_style="$(get_comment_style "$file")"
-  [[ -n "$comment_style" ]] || { log_debug "No comment style for $file"; return 0; }
+  [[ -n "$comment_style" ]] || { log_debug "Skipping unsupported file: $file"; return "$RESULT_SKIPPED"; }
 
   local license_text
-  license_text="$(get_license_text "$license" "$title")" || { log_error "Failed to get license text for $license"; return 1; }
+  license_text="$(get_license_header "$license" "$title")" || { log_error "Failed to get license header for $license"; return "$RESULT_ERROR"; }
 
-  has_current_copyright "$file" "$title" && { log_info "Skipping (already has license): $file"; return 0; }
+  managed_header_matches "$file" "$license" "$CURRENT_YEAR" "$title" && { log_info "Skipping (already has license): $file"; return "$RESULT_SKIPPED"; }
 
   local formatted_notice
+  license_text="$MANAGED_HEADER_BEGIN"$'\n'"SPDX-License-Identifier: $license"$'\n'"$license_text"$'\n'"$MANAGED_HEADER_END"
   formatted_notice="$(format_license_notice "$license_text" "$comment_style")"
   log_debug "Formatted notice: $formatted_notice"
 
-  create_temp_file "$formatted_notice" "$file"
-  mv "$TMP_FILE" "$file"
+  write_updated_file "$formatted_notice" "$file"
 
   log_info "Updated: $file"
+  return "$RESULT_UPDATED"
 }
 
 # process_file: Processes a single file for license addition.
@@ -379,30 +360,57 @@ prepend_license_to_file() {
 # Returns: 0 (processed), 1 (skipped), 2 (error)
 process_file() {
   local file="$1" license="$2" title="$3"
+  local result
 
-  should_ignore_file "$file" && { echo "1"; return 0; }
-  prepend_license_to_file "$file" "$license" "$title" && { echo "0"; return 0; }
-  echo "2"
+  should_ignore_file "$file" && { echo "$RESULT_SKIPPED"; return 0; }
+  if prepend_license_to_file "$file" "$license" "$title"; then
+    echo "$RESULT_UPDATED"
+    return 0
+  else
+    result=$?
+  fi
+  [[ $result -eq $RESULT_SKIPPED ]] && { echo "$RESULT_SKIPPED"; return 0; }
+  echo "$RESULT_ERROR"
 }
 
 # scan_directory: Scans a directory and processes all files for license addition.
 # Arguments: directory, license_type, title
 scan_directory() {
   local dir="$1" license="$2" title="$3"
-  local processed=0 skipped=0 errors=0
+  local result file_list
+  local counts=(0 0 0)
 
-  while IFS= read -r -d '' file; do
-    log_debug "Processing file: $file"
-    case "$(process_file "$file" "$license" "$title")" in
-      0) ((processed++)) ;;
-      1) ((skipped++)) ;;
-      2) ((errors++)) ;;
-    esac
-  done < <(find_files_to_process "$dir") || true
+  file_list="$(mktemp)"
+  if find_files_to_process "$dir" > "$file_list"; then
+    while IFS= read -r -d '' file; do
+      log_debug "Processing file: $file"
+      result="$(process_file "$file" "$license" "$title")"
+      counts[result]=$((counts[result] + 1))
+    done < "$file_list"
+  else
+    log_error "Failed to discover files below: $dir"
+    counts[RESULT_ERROR]=1
+  fi
+  rm -f "$file_list"
 
+  local processed="${counts[$RESULT_UPDATED]}" skipped="${counts[$RESULT_SKIPPED]}" errors="${counts[$RESULT_ERROR]}"
   log_info "Summary: $processed files updated, $skipped files skipped, $errors errors."
+  printf '%s %s %s\n' "$processed" "$skipped" "$errors"
 
-  [[ $errors -gt 0 ]] && return 1 || return 0
+  [[ $errors -eq 0 ]]
+}
+
+# write_action_outputs: Publishes structured GitHub Action result counts.
+# Arguments: updated_count, skipped_count, error_count
+write_action_outputs() {
+  local updated="$1" skipped="$2" errors="$3"
+  [[ -n "${GITHUB_OUTPUT:-}" ]] || return 0
+  {
+    printf 'updated-count=%s\n' "$updated"
+    printf 'skipped-count=%s\n' "$skipped"
+    printf 'error-count=%s\n' "$errors"
+    [[ "$updated" -gt 0 ]] && printf 'changed=true\n' || printf 'changed=false\n'
+  } >> "$GITHUB_OUTPUT"
 }
 
 # --- Root LICENSE ---
@@ -474,6 +482,7 @@ init_git_context() {
 # Arguments: directory, license_type, copyright_title
 main() {
   local directory="$1" license_type="$2" copyright_title="$3"
+  local summary updated skipped errors scan_status=0
 
   log_info "Starting license processing..."
   log_info "Directory: $directory"
@@ -481,7 +490,10 @@ main() {
   log_info "Copyright Title: $copyright_title"
 
   init_git_context "$directory"
-  scan_directory "$directory" "$license_type" "$copyright_title" || exit 1
+  summary="$(scan_directory "$directory" "$license_type" "$copyright_title")" || scan_status=$?
+  read -r updated skipped errors <<< "$summary"
+  write_action_outputs "$updated" "$skipped" "$errors"
+  [[ $scan_status -eq 0 ]] || return "$scan_status"
 
   # Optional: Create root license file
   # create_root_license "$license_type" "$copyright_title"

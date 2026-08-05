@@ -1,118 +1,63 @@
 # Devcontainer for local end-to-end testing with act
 
-This devcontainer config installs the `act` feature from the devcontainer feature marketplace so you can run GitHub Actions locally inside the container.
-
-How to use
-
-- Open this repository in VS Code.
-
-- Reopen in Container (Dev Containers: Reopen in Container). The devcontainer will build and include the `act` feature.
-# Devcontainer for local end-to-end testing with act
-
-This devcontainer helps you run the repository's GitHub Action locally using the `act` tool.
+This devcontainer runs the repository's Bash tests and GitHub Action integration test in a reproducible environment.
 
 ## What this provides
 
-- A reproducible container environment for running the `Test Action Locally` workflow defined in `.github/workflows/test-action.yml`.
-
-- The `act` tool available inside the container (installed via the devcontainer feature) so you can execute GitHub workflows locally.
+- Ubuntu 24.04 LTS with the repository's command-line dependencies.
+- `act`, installed through a locked Dev Container feature.
+- Docker-outside-of-Docker support so `act` can start runner containers as the normal `vscode` user.
+- The official Dev Container CLI as the canonical build and validation path.
 
 ## Quick start
 
-1. Open this repository in Visual Studio Code.
-
-2. Reopen in Container: open the command palette (Ctrl+Shift+P) and choose "Dev Containers: Reopen in Container". VS Code will build the devcontainer using `.devcontainer/Dockerfile` and apply features (including `act`).
-
-3. In the VS Code terminal (inside the container) make the test helper executable and run it:
+From the host, with Docker, Node.js, `npx`, and Bash available:
 
 ```bash
-chmod +x ./scripts/run_act_test.sh
-./scripts/run_act_test.sh
+./scripts/validate_devcontainer.sh
 ```
 
-## What the test does
+This uses the pinned `@devcontainers/cli` version to build the complete configuration, recreate its container, and execute both test suites inside it. It validates the Dockerfile, features, feature lockfile, remote user, and Docker socket integration—not just the base Dockerfile. Any existing container for this workspace is replaced so stale dependencies cannot affect the result.
 
-- Creates a small sample file under `src/`.
+If Make is available, `make validate-devcontainer` runs the same script.
 
-- Invokes the composite action in this repository (uses: ./) with sample inputs.
+To work interactively, open the repository in Visual Studio Code and choose **Dev Containers: Reopen in Container**. Then run:
 
-- Prints the `act` output so you can inspect logs and the exit code.
+```bash
+make test
+make test-act
+```
 
-## Recommended Make targets
+## What the integration test does
 
-- `make test-act` — runs `./scripts/run_act_test.sh` (this target will `chmod` the script first).
+- Creates JavaScript and Python fixtures in the isolated Actions runner.
+- Invokes the local composite action twice.
+- Verifies the copyright holder, current year, full MIT notice, and original source content.
+- Verifies that the calling repository contains changes after the first run.
+- Verifies byte-for-byte idempotency after the second run.
+
+## Make targets
+
+- `make build-devcontainer` builds the full configuration with the Dev Container CLI.
+- `make validate-devcontainer` builds, starts, and validates everything inside the container.
+- `make test-act` runs only the `act` integration test from an already-running devcontainer.
 
 ## Troubleshooting
 
 ### Devcontainer build fails or is slow
 
-- Problem: building the devcontainer can fail due to network issues, Docker daemon limits, or missing features.
+- Ensure Docker Desktop or the Docker daemon is running and has sufficient resources.
+- Retry `make build-devcontainer`; feature and image downloads may be transient.
+- Keep `.devcontainer/devcontainer-lock.json` committed so feature versions remain reproducible.
 
-- Remediation:
+### `act` is unavailable
 
-	- Ensure Docker Desktop (or your Docker daemon) is running and has sufficient resources (memory, CPUs).
+Run `act --version` inside the container. If it is missing, rebuild with `make build-devcontainer` so the Dev Container CLI reapplies the configured features.
 
-	- Re-run the Reopen in Container command. Use the "Rebuild Container" option if prompted.
+### Docker is unavailable to `act`
 
-	- If the build fails with a missing feature, ensure your VS Code and Dev Containers extension are up-to-date.
+Run `docker version` inside the container. Reopen or recreate the devcontainer if the Docker socket feature was added after the container was created.
 
-### `act` command not found inside the container
+### Workflow behavior differs from GitHub-hosted runners
 
-- Problem: the devcontainer feature didn't install or the feature version is not available.
-
-- Remediation:
-
-	- Inside the container run `which act` and `act --version` to verify presence.
-
-	- Rebuild the devcontainer. In VS Code, use "Dev Containers: Rebuild Container".
-
-	- If the feature still fails, install `act` manually inside the container for debugging only:
-
-```bash
-curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
-```
-
-### Workflow fails under `act` but passes on GitHub
-
-- Problem: `act` uses a different runner image and may not provide the same environment (pre-installed tools, secrets, or service containers).
-
-- Remediation:
-
-	- Inspect the logs `act` prints; they usually include the failing command and stdout/stderr.
-
-	- Pass required environment variables or secrets to `act`, for example:
-
-```bash
-act -s GITHUB_TOKEN=xxx -e event.json
-```
-
-	- If the workflow requires a different runner, use `act`'s `-P` mapping or `--container-architecture` options to select a compatible image.
-
-### Scripts lack execute permission on Windows
-
-- Problem: Windows filesystem may not preserve the executable bit; inside the container the script may be non-executable.
-
-- Remediation:
-
-	- Run `chmod +x ./scripts/run_act_test.sh` inside the container (the Makefile target `make test-act` will attempt to `chmod` first).
-
-### Action fails to find its bundled scripts (permission or path errors)
-
-- Problem: `action.yml` used expressions like `${{ github.action_path }}` inside `run:` steps which are not available at runtime.
-
-- Remediation:
-
-	- This repository's `action.yml` has been updated to use the runtime environment variable `$GITHUB_ACTION_PATH`. If you still see errors referencing `github.action_path`, ensure your local checkout includes the updated file and re-run the test.
-
-### `act` network or Docker permission problems
-
-- Problem: `act` needs Docker and network access to pull images and run jobs.
-
-- Remediation:
-
-	- Ensure the Docker daemon is accessible to your user. On Linux, add your user to the `docker` group or run with `sudo`.
-
-	- If `act` fails pulling images, pre-pull commonly used images or give `act` the `--reuse` flag to reuse pulled images.
-
-If you hit an error not covered here, paste the relevant `act` logs and I can suggest targeted fixes.
-
+`act` uses `catthehacker/ubuntu:act-latest`, which approximates but does not exactly duplicate a GitHub-hosted runner. Use the hosted CI run as the final compatibility check for runner-specific behavior.

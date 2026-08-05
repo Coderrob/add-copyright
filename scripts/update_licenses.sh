@@ -9,7 +9,7 @@
 #
 # Usage: ./update_licenses.sh
 #
-# Dependencies: git, jq, find, mktemp
+# Dependencies: git, jq, find, gzip, zcat, mktemp
 #
 # Author: Robert Lindley
 # License: Apache-2.0
@@ -19,29 +19,37 @@ set -euo pipefail
 # --- Constants ---
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
-readonly SPDX_REPO="https://github.com/spdx/license-list-data.git"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
+readonly SPDX_REPO="${SPDX_REPO:-https://github.com/spdx/license-list-data.git}"
 readonly SPDX_JSON_DIR="json/details"
 readonly LOCAL_LICENSES_DIR="licenses"
-TMP_DIR="$(mktemp -d)"
+readonly MIN_LICENSE_COUNT="${MIN_LICENSE_COUNT:-700}"
+TMP_DIR="$(mktemp -d "$(pwd)/.license-update.XXXXXX")"
 readonly TMP_DIR
 readonly SPDX_CLONE_DIR="$TMP_DIR/spdx-license-list-data"
+readonly STAGED_LICENSES_DIR="$TMP_DIR/licenses"
+readonly BACKUP_LICENSES_DIR="$TMP_DIR/licenses.backup"
+INSTALL_STARTED=0
+INSTALL_COMPLETE=0
+HAD_LIVE_DATABASE=0
 
-# --- Logging ---
-# log: Logs a message with timestamp, script name, and log level.
-log() {
-  local level="$1"; shift
-  printf '%s [%s] %s: %s\n' "$(date +'%Y-%m-%dT%H:%M:%S%z')" "$SCRIPT_NAME" "$level" "$*" >&2
-}
-# log_info: Logs an informational message.
-log_info() { log "INFO" "$@"; }
-# log_warn: Logs a warning message.
-log_warn() { log "WARN" "$@"; }
-# log_error: Logs an error message.
-log_error() { log "ERROR" "$@"; }
+# shellcheck source=scripts/lib/logging.bash
+source "$SCRIPT_DIR/lib/logging.bash"
 
 # --- Error Handling ---
-# cleanup: Removes temporary directories created during execution.
+# rollback_license_database: Restores live data after an interrupted install.
+rollback_license_database() {
+  [[ $INSTALL_STARTED -eq 1 && $INSTALL_COMPLETE -eq 0 ]] || return 0
+  [[ -d "$LOCAL_LICENSES_DIR" ]] && mv "$LOCAL_LICENSES_DIR" "$TMP_DIR/licenses.failed"
+  if [[ $HAD_LIVE_DATABASE -eq 1 && -d "$BACKUP_LICENSES_DIR" ]]; then
+    mv "$BACKUP_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
+  fi
+}
+
+# cleanup: Rolls back incomplete installation and removes temporary data.
 cleanup() {
+  rollback_license_database
   rm -rf "$TMP_DIR"
 }
 
@@ -51,7 +59,16 @@ on_error() {
   exit 1
 }
 
+# on_signal: Converts interruption signals into a rollback-triggering exit.
+# Arguments: signal_name
+on_signal() {
+  log_error "Interrupted by $1; restoring the previous license database"
+  exit 130
+}
+
 trap on_error ERR
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 trap cleanup EXIT
 
 # --- Dependencies ---
@@ -61,21 +78,23 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || return 1
 }
 
+# report_missing_command: Prints installation guidance for one dependency.
+# Arguments: command_name
+report_missing_command() {
+  if [[ "$1" != "jq" ]]; then
+    log_error "Missing required command: $1"
+    return 0
+  fi
+  log_error "Missing required command: jq"
+  log_error "Install jq with your system package manager."
+}
+
 # require_cmds: Verifies that all required commands are installed.
 require_cmds() {
   local cmd
-  for cmd in git jq find mktemp; do
+  for cmd in git jq find gzip zcat mktemp; do
     if ! require_cmd "$cmd"; then
-      if [[ "$cmd" == "jq" ]]; then
-        log_error "Missing required command: jq"
-        log_error "Install jq:"
-        log_error "  macOS: brew install jq"
-        log_error "  Ubuntu/Debian: sudo apt-get install -y jq"
-        log_error "  Fedora/CentOS: sudo dnf install -y jq  (or yum install jq)"
-        log_error "  Windows (scoop): scoop install jq  or (chocolatey): choco install jq"
-      else
-        log_error "Missing required command: $cmd"
-      fi
+      report_missing_command "$cmd"
       exit 2
     fi
   done
@@ -101,29 +120,42 @@ ensure_spdx_json_dir() {
   printf '%s' "$dir"
 }
 
-# backup_existing_licenses: Creates a backup of the existing licenses directory.
-backup_existing_licenses() {
-  [[ -d "$LOCAL_LICENSES_DIR" ]] || return 0
-  cp -r "$LOCAL_LICENSES_DIR" "$TMP_DIR/licenses_backup"
-}
-
-# reset_local_license_dir: Removes and recreates the local licenses directory.
-reset_local_license_dir() {
-  rm -rf "$LOCAL_LICENSES_DIR"
-  mkdir -p "$LOCAL_LICENSES_DIR"
-}
-
-# sync_license_files: Copies license JSON files from SPDX repo to local directory.
-# Arguments: source_directory
+# sync_license_files: Compresses SPDX JSON details into the runtime database.
+# Arguments: source_directory, destination_directory
 sync_license_files() {
-  local src_dir="$1"
-  find "$src_dir" -name "*.json" -exec cp {} "$LOCAL_LICENSES_DIR/" \;
-  log_info "Copied $(count_local_licenses) license json detail files"
+  local src_dir="$1" destination="$2"
+  local source_file
+  mkdir -p "$destination"
+  while IFS= read -r -d '' source_file; do
+    gzip -c "$source_file" > "$destination/$(basename "$source_file").gz"
+  done < <(find "$src_dir" -name "*.json" -print0)
+  log_info "Compressed $(count_licenses "$destination") license detail files"
 }
 
-# count_local_licenses: Counts the number of license JSON files in the local directory.
-count_local_licenses() {
-  find "$LOCAL_LICENSES_DIR" -name "*.json" | wc -l
+# count_licenses: Counts compressed license records in a database directory.
+# Arguments: license_directory
+count_licenses() {
+  find "$1" -name "*.json.gz" | wc -l
+}
+
+# validate_staged_database: Rejects incomplete or unreadable staged databases.
+validate_staged_database() {
+  local count
+  count="$(count_licenses "$STAGED_LICENSES_DIR")"
+  [[ "$count" -ge "$MIN_LICENSE_COUNT" ]] || { log_error "Expected at least $MIN_LICENSE_COUNT licenses; found $count"; return 1; }
+  find "$STAGED_LICENSES_DIR" -name '*.json.gz' -print0 \
+    | while IFS= read -r -d '' record; do gzip -t "$record"; done
+}
+
+# install_staged_database: Replaces the live database and rolls back on failure.
+install_staged_database() {
+  INSTALL_STARTED=1
+  if [[ -d "$LOCAL_LICENSES_DIR" ]]; then
+    HAD_LIVE_DATABASE=1
+    mv "$LOCAL_LICENSES_DIR" "$BACKUP_LICENSES_DIR"
+  fi
+  mv "$STAGED_LICENSES_DIR" "$LOCAL_LICENSES_DIR"
+  INSTALL_COMPLETE=1
 }
 
 # --- Root LICENSE ---
@@ -152,21 +184,21 @@ create_root_license_if_missing() {
 
   local candidate
   candidate="$(candidate_license)"
-  local jsonfile="$LOCAL_LICENSES_DIR/${candidate}.json"
+  local jsonfile="$LOCAL_LICENSES_DIR/${candidate}.json.gz"
   if [[ ! -f "$jsonfile" ]]; then
     log_warn "Candidate license json not found ($jsonfile); will not create root LICENSE."
     return 0
   fi
 
   log_info "Creating root LICENSE using $candidate"
-  jq -r '.licenseText' "$jsonfile" > LICENSE
+  zcat "$jsonfile" | jq -r '.licenseText' > LICENSE
 }
 
 # --- Reporting ---
 # list_updated_licenses: Lists all updated license identifiers in sorted order.
 list_updated_licenses() {
-  find "$LOCAL_LICENSES_DIR" -name "*.json" -exec basename {} \; \
-    | while IFS= read -r name; do printf '%s\n' "${name%.json}"; done \
+  find "$LOCAL_LICENSES_DIR" -name "*.json.gz" -exec basename {} \; \
+    | while IFS= read -r name; do printf '%s\n' "${name%.json.gz}"; done \
     | sort
 }
 
@@ -180,12 +212,12 @@ main() {
   local spdx_dir
   spdx_dir="$(ensure_spdx_json_dir)"
 
-  backup_existing_licenses
-  reset_local_license_dir
-  sync_license_files "$spdx_dir"
+  sync_license_files "$spdx_dir" "$STAGED_LICENSES_DIR"
+  validate_staged_database
+  install_staged_database
   create_root_license_if_missing
 
-  log_info "License update complete. $(count_local_licenses) license json detail files synced."
+  log_info "License update complete. $(count_licenses "$LOCAL_LICENSES_DIR") license json detail files synced."
   log_info "Updated licenses:"
   list_updated_licenses
 }

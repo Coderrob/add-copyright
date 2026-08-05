@@ -7,7 +7,8 @@ on:
   pull_request: {}
   workflow_dispatch: {}
 
-permissions: {}
+permissions:
+  contents: read
 
 defaults:
   run:
@@ -15,40 +16,39 @@ defaults:
 
 jobs:
   bash-tests:
+    name: BATS and shell quality
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Run bash tests
-        id: run-bash-tests
-        run: |
-          set -euo pipefail
-          chmod +x scripts/run_tests.sh
-          ./scripts/run_tests.sh
-
-      - name: Shellcheck scripts
-        id: shellcheck
+      - name: Install shell test tools
+        id: install-shell-test-tools
         run: |
           set -euo pipefail
           sudo apt-get update -y
-          sudo apt-get install -y shellcheck
-          shellcheck scripts/*.sh __tests__/*.sh
+          sudo apt-get install -y bats shellcheck
+
+      - name: Run BATS and shell quality tests
+        id: run-shell-tests
+        run: |
+          set -euo pipefail
+          chmod +x scripts/run_tests.sh scripts/check_shell_quality.sh
+          ./scripts/run_tests.sh
 
   action-integration:
+    name: Local action integration
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    timeout-minutes: 10
     steps:
       - name: Checkout
         id: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 1
           persist-credentials: false
@@ -59,6 +59,7 @@ jobs:
           set -euo pipefail
           mkdir -p src
           echo "// sample" > src/example.js
+          printf '#!/usr/bin/env python3\nprint("sample")\n' > src/example.py
 
       - name: Run action from repository
         id: run-action
@@ -68,14 +69,32 @@ jobs:
           license: MIT
           working-directory: ./src
 
-      - name: Show updated file
-        id: show-updated-file
+      - name: Validate calling repository updates
+        id: validate-updates
+        env:
+          UPDATED_COUNT: ${{ steps.run-action.outputs.updated-count }}
+          ERROR_COUNT: ${{ steps.run-action.outputs.error-count }}
         run: |
           set -euo pipefail
-          echo "---- Updated file content ----"
-          if [ -f ./src/example.js ]; then
-            sed -n '1,120p' ./src/example.js || true
-          else
-            echo "(file not present)"
-          fi
-          echo "---- end ----"
+          [[ "$UPDATED_COUNT" == "2" ]]
+          [[ "$ERROR_COUNT" == "0" ]]
+          scripts/tests/validate_action_fixture.sh capture src "$RUNNER_TEMP/action-fixture"
+
+      - name: Run action a second time
+        id: run-action-again
+        uses: ./
+        with:
+          name: "Test Runner"
+          license: MIT
+          working-directory: ./src
+
+      - name: Validate idempotency
+        id: validate-idempotency
+        env:
+          UPDATED_COUNT: ${{ steps.run-action-again.outputs.updated-count }}
+          SKIPPED_COUNT: ${{ steps.run-action-again.outputs.skipped-count }}
+        run: |
+          set -euo pipefail
+          [[ "$UPDATED_COUNT" == "0" ]]
+          [[ "$SKIPPED_COUNT" == "2" ]]
+          scripts/tests/validate_action_fixture.sh verify src "$RUNNER_TEMP/action-fixture"

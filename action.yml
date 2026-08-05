@@ -1,7 +1,7 @@
 author: Robert Lindley
-name: Copyright and License
+name: Add Copyright and License
 description: |
-  Adds copyright headers and license texts to source files using SPDX, supporting 750+ licenses.
+  Adds copyright headers and license notices to source files using 700+ SPDX license identifiers.
 
 branding:
   color: yellow
@@ -21,19 +21,28 @@ inputs:
     description: "Directory to scan for source files"
     required: false
 
+outputs:
+  updated-count:
+    description: "Number of files updated"
+    value: ${{ steps.execute-update.outputs.updated-count }}
+  skipped-count:
+    description: "Number of files skipped"
+    value: ${{ steps.execute-update.outputs.skipped-count }}
+  error-count:
+    description: "Number of files that could not be updated"
+    value: ${{ steps.execute-update.outputs.error-count }}
+  changed:
+    description: "Whether at least one file was updated"
+    value: ${{ steps.execute-update.outputs.changed }}
+
 runs:
   using: "composite"
   steps:
-    - name: Ensure Script Permission
-      id: ensure-executable
-      shell: bash
-      run: chmod +x "$GITHUB_ACTION_PATH/scripts/copyright.sh"
-
     - name: Execute Copyright Update
       id: execute-update
       shell: bash
       run: |
-        "$GITHUB_ACTION_PATH/scripts/copyright.sh" \
+        bash "$GITHUB_ACTION_PATH/scripts/copyright.sh" \
         "${{ inputs.working-directory }}" \
         "${{ inputs.license }}" \
         "${{ inputs.name }}"

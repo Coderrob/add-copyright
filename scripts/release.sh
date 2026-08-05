@@ -10,7 +10,7 @@
 # - Pushes tags to the remote repository
 # - Creates release branches for major versions
 #
-# Usage: ./release.sh
+# Usage: ./release.sh [--dry-run] <vX.Y.Z>
 #
 # Dependencies: git
 #
@@ -22,22 +22,14 @@ set -euo pipefail
 # --- Constants ---
 SCRIPT_NAME="$(basename "$0")"
 readonly SCRIPT_NAME
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly SCRIPT_DIR
 readonly SEMVER_TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly SEMVER_TAG_GLOB='v[0-9].[0-9].[0-9]*'
 readonly GIT_REMOTE='origin'
 
-# --- Logging ---
-# log: Logs a message with timestamp, script name, and log level.
-log() {
-  local level="$1"; shift
-  printf '%s [%s] %s: %s\n' "$(date +'%Y-%m-%dT%H:%M:%S%z')" "$SCRIPT_NAME" "$level" "$*" >&2
-}
-# log_info: Logs an informational message.
-log_info() { log "INFO" "$@"; }
-# log_warn: Logs a warning message.
-log_warn() { log "WARN" "$@"; }
-# log_error: Logs an error message.
-log_error() { log "ERROR" "$@"; }
+# shellcheck source=scripts/lib/logging.bash
+source "$SCRIPT_DIR/lib/logging.bash"
 
 # --- Error Handling ---
 trap 'log_error "Error on line $LINENO: $BASH_COMMAND"; exit 1' ERR
@@ -52,20 +44,12 @@ require_cmds() {
 # init_colors: Initializes ANSI color codes if output is a terminal.
 init_colors() {
   if [[ -t 1 ]]; then
-    BOLD='\033[1m'
     BOLD_BLUE='\033[1;34m'
     BOLD_GREEN='\033[1;32m'
-    BOLD_PURPLE='\033[1;35m'
-    BOLD_RED='\033[1;31m'
-    BOLD_UNDERLINED='\033[1;4m'
     OFF='\033[0m'
   else
-    BOLD=''
     BOLD_BLUE=''
     BOLD_GREEN=''
-    BOLD_PURPLE=''
-    BOLD_RED=''
-    BOLD_UNDERLINED=''
     OFF=''
   fi
 }
@@ -113,90 +97,162 @@ is_major_release() {
 }
 
 # --- Release Steps ---
-# confirm_package_version: Prompts user to confirm package.json version matches the tag.
+# ensure_remote_tag_available: Verifies remote inspection and tag availability.
 # Arguments: tag
-confirm_package_version() {
-  local tag="$1"
+ensure_remote_tag_available() {
+  local remote_status=0
+  git ls-remote --exit-code --tags "$GIT_REMOTE" "refs/tags/$1" >/dev/null 2>&1 || remote_status=$?
+  case "$remote_status" in
+    0) log_error "Tag already exists remotely: $1"; return 1 ;;
+    2) return 0 ;;
+    *) log_error "Unable to inspect remote tags on $GIT_REMOTE"; return 1 ;;
+  esac
+}
 
-  log_info "Reminding user to update package.json version"
-  printf 'Make sure the version field in package.json is %s%s%s. Yes? [Y/%sn%s] ' "$BOLD_BLUE" "$tag" "$OFF" "$BOLD_UNDERLINED" "$OFF"
-  read -r answer
-
-  if [[ ! ("$answer" == "y" || "$answer" == "Y") ]]; then
-    log_error "Please update the package.json version to ${BOLD_PURPLE}$tag${OFF} and commit your changes"
-    exit 1
+# ensure_release_ready: Verifies the remote and requested tag are available.
+# Arguments: tag
+ensure_release_ready() {
+  git remote get-url "$GIT_REMOTE" >/dev/null
+  if git show-ref --verify --quiet "refs/tags/$1"; then
+    log_error "Tag already exists locally: $1"
+    return 1
   fi
+  ensure_remote_tag_available "$1"
+}
+
+# run_git: Executes git or logs the exact mutation during a dry run.
+# Arguments: dry_run, git_arguments...
+run_git() {
+  local dry_run="$1"
+  shift
+  [[ "$dry_run" == "true" ]] && { log_info "DRY RUN: git $*"; return 0; }
+  git "$@"
 }
 
 # create_tag: Creates an annotated git tag.
-# Arguments: tag, message, [force_flag]
+# Arguments: dry_run, tag, message, [force_flag]
 create_tag() {
-  local tag="$1"
-  local message="$2"
-  local force="${3:-}"
+  local dry_run="$1" tag="$2" message="$3" force="${4:-}"
+  local force_args=()
+  [[ -n "$force" ]] && force_args+=("$force")
 
-  if [[ -n "$force" ]]; then
-    git tag "$tag" --annotate --message "$message" "$force"
-  else
-    git tag "$tag" --annotate --message "$message"
-  fi
+  run_git "$dry_run" tag "$tag" --annotate --message "$message" "${force_args[@]}"
   log_info "Tagged: ${BOLD_GREEN}$tag${OFF}"
 }
 
+# update_major_tags: Creates or advances the floating major-version tag.
+# Arguments: dry_run, is_major, new_tag, latest_tag
 update_major_tags() {
-  local is_major="$1"
-  local new_tag="$2"
-  local latest_tag="$3"
+  local dry_run="$1" is_major="$2" new_tag="$3" latest_tag="$4"
 
   if [[ "$is_major" == "true" ]]; then
     local new_major
     new_major="$(major_tag_of "$new_tag")"
     log_info "Creating new major version tag: ${BOLD_GREEN}$new_major${OFF}"
-    create_tag "$new_major" "$new_major Release"
+    create_tag "$dry_run" "$new_major" "$new_major Release"
     return 0
   fi
 
   local latest_major
   latest_major="$(major_tag_of "$latest_tag")"
   log_info "Syncing major version tag: ${BOLD_GREEN}$latest_major${OFF} with new tag: ${BOLD_GREEN}$new_tag${OFF}"
-  create_tag "$latest_major" "Sync $latest_major tag with $new_tag" --force
+  create_tag "$dry_run" "$latest_major" "Sync $latest_major tag with $new_tag" --force
 }
 
-# push_tags: Pushes tags to the remote repository.
-# Arguments: is_major, new_tag, latest_tag
-push_tags() {
-  local is_major="$1"
-  local new_tag="$2"
-  local latest_tag="$3"
-
-  git push --follow-tags
+# push_release_refs: Atomically publishes all release references.
+# Arguments: dry_run, is_major, new_tag, latest_tag
+push_release_refs() {
+  local dry_run="$1" is_major="$2" new_tag="$3" latest_tag="$4"
+  local major refs
+  major="$(major_tag_of "$new_tag")"
+  [[ "$is_major" == "true" ]] || major="$(major_tag_of "$latest_tag")"
+  refs=("refs/tags/$new_tag:refs/tags/$new_tag" "+refs/tags/$major:refs/tags/$major")
 
   if [[ "$is_major" == "true" ]]; then
-    local new_major
-    new_major="$(major_tag_of "$new_tag")"
-    log_info "Tags: ${BOLD_GREEN}$new_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
-    return 0
+    refs+=("refs/heads/releases/$major:refs/heads/releases/$major")
   fi
-
-  local latest_major
-  latest_major="$(major_tag_of "$latest_tag")"
-  git push "$GIT_REMOTE" "$latest_major" --force
-  log_info "Tags: ${BOLD_GREEN}$latest_major${OFF} and ${BOLD_GREEN}$new_tag${OFF} pushed to remote"
+  run_git "$dry_run" push --atomic "$GIT_REMOTE" "${refs[@]}" || return 1
+  log_info "Published release references for ${BOLD_GREEN}$new_tag${OFF} atomically"
 }
 
-# create_release_branch: Creates a release branch for major versions.
-# Arguments: is_major, new_tag
+# ref_target: Prints the current object for a local reference when present.
+# Arguments: full_ref_name
+ref_target() {
+  git rev-parse --verify --quiet "$1" 2>/dev/null || true
+}
+
+# restore_ref: Restores a local reference to its prior target or removes it.
+# Arguments: full_ref_name, prior_target
+restore_ref() {
+  if [[ -n "$2" ]]; then
+    git update-ref "$1" "$2"
+    return 0
+  fi
+  git update-ref -d "$1" 2>/dev/null || true
+}
+
+# rollback_release_refs: Restores all local references after push failure.
+# Arguments: new_tag, major_tag, prior_major_target, release_branch, prior_branch_target
+rollback_release_refs() {
+  log_warn "Atomic publication failed; restoring local release references"
+  restore_ref "refs/tags/$1" ""
+  restore_ref "refs/tags/$2" "$3"
+  [[ -n "$4" ]] && restore_ref "refs/heads/$4" "$5"
+}
+
+# publish_release: Creates local refs and atomically publishes or rolls back.
+# Arguments: dry_run, new_tag, latest_tag, is_major
+publish_release() {
+  local dry_run="$1" new_tag="$2" latest_tag="$3" is_major="$4"
+  local major_tag release_branch="" prior_major prior_branch=""
+  major_tag="$(major_tag_of "$new_tag")"
+  [[ "$is_major" == "true" ]] || major_tag="$(major_tag_of "$latest_tag")"
+  [[ "$is_major" == "true" ]] && release_branch="releases/$major_tag"
+  prior_major="$(ref_target "refs/tags/$major_tag")"
+  [[ -n "$release_branch" ]] && prior_branch="$(ref_target "refs/heads/$release_branch")"
+  create_tag "$dry_run" "$new_tag" "$new_tag Release"
+  update_major_tags "$dry_run" "$is_major" "$new_tag" "$latest_tag"
+  create_release_branch "$dry_run" "$is_major" "$new_tag"
+  if push_release_refs "$dry_run" "$is_major" "$new_tag" "$latest_tag"; then
+    return 0
+  fi
+  [[ "$dry_run" == "true" ]] || rollback_release_refs "$new_tag" "$major_tag" "$prior_major" "$release_branch" "$prior_branch"
+  return 1
+}
+
+# create_release_branch: Creates the local release branch for major versions.
+# Arguments: dry_run, is_major, new_tag
 create_release_branch() {
-  local is_major="$1"
-  local new_tag="$2"
+  local dry_run="$1" is_major="$2" new_tag="$3"
 
   [[ "$is_major" == "true" ]] || return 0
 
   local new_major
   new_major="$(major_tag_of "$new_tag")"
-  log_info "Creating and pushing new releases branch for major version: ${BOLD_GREEN}$new_major${OFF}"
-  git branch "releases/$new_major" "$new_major"
-  git push --set-upstream "$GIT_REMOTE" "releases/$new_major"
+  log_info "Creating releases branch for major version: ${BOLD_GREEN}$new_major${OFF}"
+  run_git "$dry_run" branch "releases/$new_major" "$new_major"
+}
+
+# parse_arguments: Prints the dry-run flag and validated release tag.
+# Arguments: [--dry-run], tag
+parse_arguments() {
+  local dry_run=false
+  [[ "${1:-}" == "--dry-run" ]] && { dry_run=true; shift; }
+  [[ $# -eq 1 ]] || { log_error "Usage: $SCRIPT_NAME [--dry-run] <vX.Y.Z>"; return 1; }
+  validate_tag "$1" || { log_error "Tag '$1' is not valid (expected vX.Y.Z)"; return 1; }
+  printf '%s %s\n' "$dry_run" "$1"
+}
+
+# classify_release: Sets is_major and logs the release classification.
+# Arguments: latest_tag, new_tag
+classify_release() {
+  if is_major_release "$1" "$2"; then
+    log_info "This is a major release"
+    printf '%s' "true"
+    return 0
+  fi
+  log_info "This is not a major release"
+  printf '%s' "false"
 }
 
 # --- Main ---
@@ -207,32 +263,18 @@ main() {
 
   log_info "Starting release process..."
 
+  local parsed dry_run new_tag
+  parsed="$(parse_arguments "$@")"
+  read -r dry_run new_tag <<< "$parsed"
+  ensure_release_ready "$new_tag"
+
   local latest_tag
   latest_tag="$(get_latest_tag)"
   log_info "Latest release tag: ${BOLD_BLUE}$latest_tag${OFF}"
 
-  printf 'Enter a new release tag (vX.X.X format): '
-  read -r new_tag
-
-  if ! validate_tag "$new_tag"; then
-    log_error "Tag: ${BOLD_BLUE}$new_tag${OFF} is ${BOLD_RED}not valid${OFF} (must be in ${BOLD}vX.X.X${OFF} format)"
-    exit 1
-  fi
-
-  confirm_package_version "$new_tag"
-  create_tag "$new_tag" "$new_tag Release"
-
-  local is_major="false"
-  if is_major_release "$latest_tag" "$new_tag"; then
-    is_major="true"
-    log_info "This is a major release"
-  else
-    log_info "This is not a major release"
-  fi
-
-  update_major_tags "$is_major" "$new_tag" "$latest_tag"
-  push_tags "$is_major" "$new_tag" "$latest_tag"
-  create_release_branch "$is_major" "$new_tag"
+  local is_major
+  is_major="$(classify_release "$latest_tag" "$new_tag")"
+  publish_release "$dry_run" "$new_tag" "$latest_tag" "$is_major"
 
   log_info "${BOLD_GREEN}Done!${OFF}"
 }
