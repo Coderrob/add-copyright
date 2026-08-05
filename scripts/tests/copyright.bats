@@ -77,3 +77,39 @@ teardown() {
   [ "$status" -eq 0 ]
   assert_file_contains "example.go" "Copyright (c) $(date +%Y) BATS Runner"
 }
+
+@test "excludes dependency and generated directories" {
+  create_source "src/app.js" "console.log('app');"
+  create_source "node_modules/library.js" "module.exports = {};"
+  create_source "dist/app.js" "generated"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  assert_file_contains "src/app.js" "Copyright (c) $(date +%Y) BATS Runner"
+  ! grep -Fq "Copyright" "$(source_path node_modules/library.js)"
+  ! grep -Fq "Copyright" "$(source_path dist/app.js)"
+}
+
+@test "adds the current notice when only an old year exists" {
+  local old_year=$(( $(date +%Y) - 1 ))
+  create_source "example.ts" "// Copyright (c) $old_year BATS Runner
+export const value = 1;"
+  run_copyright MIT "BATS Runner"
+  [ "$status" -eq 0 ]
+  assert_file_contains "example.ts" "Copyright (c) $(date +%Y) BATS Runner"
+  assert_file_contains "example.ts" "Copyright (c) $old_year BATS Runner"
+}
+
+@test "resolves licenses from the GitHub action checkout" {
+  create_source "example.py" "print('remote action')"
+  run env GITHUB_ACTION_PATH="$PROJECT_ROOT" "$COPYRIGHT_SCRIPT" \
+    "$TEST_WORKSPACE" MIT "Remote Runner"
+  [ "$status" -eq 0 ]
+  assert_file_contains "example.py" "Copyright (c) $(date +%Y) Remote Runner"
+}
+
+@test "rejects an invalid GitHub action checkout path" {
+  create_source "example.py" "print('remote action')"
+  run env GITHUB_ACTION_PATH="$TEST_WORKSPACE/missing-action" \
+    "$COPYRIGHT_SCRIPT" "$TEST_WORKSPACE" MIT "Remote Runner"
+  [ "$status" -ne 0 ]
+}
